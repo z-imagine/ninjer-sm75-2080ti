@@ -1,0 +1,62 @@
+# Tasks
+
+## 1. 构建解锁（P0）
+
+- [ ] 1.1 修改 `CMakeLists.txt:3-12`：架构允许列表 {75, 86, 120a}，sm75 定义全局宏 `NINFER_SM75`，其他架构报错列出允许集；验证：x99 上 `-DCMAKE_CUDA_ARCHITECTURES=75` 配置成功、`-DCMAKE_CUDA_ARCHITECTURES=80` 配置失败且报错列出 {75, 86, 120a}
+- [ ] 1.2 验证基线不变：x99 上以 `sm_120a` 配置并全量构建成功（该 GPU 上只验证编译，不运行）；验证：120a 构建 0 错误
+- [ ] 1.3 实测定局带宽之争：x99 独立构建运行 `tools/hbm_bandwidth_probe.cu`；验证：记录实测 GB/s（616 或 448），写入 x99 笔记，供 P5 调优优先级参考（不影响本变更 spec）
+
+## 2. 回退层（P1，4 个共享头）
+
+- [ ] 2.1 `src/ops/common/mma.cuh` 加 `#if NINFER_SM75`：mma_bf16 → FMA 模拟（bf16→f32 无损 + 同序累加）、mma_tf32 → 先舍入 tf32 再 FMA、mma_f16/mma_s8 核对 PTX shape 后原生直用、fp8/nvfp4 消费方加 static_assert 防护；验证：编译通过
+- [ ] 2.2 新增 sm75 自测（tests/）：mma_bf16/tf32 模拟 vs 软件参考，随机输入逐位对比；验证：x99 上该测试绿（L1）
+- [ ] 2.3 `src/ops/common/memory.cuh`：cp_async / cp_async_zfill → 普通 int4/int2/int 拷贝，commit/wait → no-op；验证：走回退路径的小 GEMM 自测绿（L1）
+- [ ] 2.4 `src/core/pdl.cuh`：launch_dependent → `cudaLaunchKernel`，trigger/wait → no-op（16 个消费文件零改动）；验证：任意 PDL 消费内核（如 bf16 GEMM）编译运行且输出与参考一致
+- [ ] 2.5 `src/ops/common/math.cuh` 逐个核对 sm80+ intrinsic，缺啥补啥；验证：全树编译无 math.cuh 相关错误
+
+## 3. 全树编译收敛（P2）
+
+- [ ] 3.1 CMake 源过滤（sm75）：`linear/{fp8,nvfp4}` 及 `sources.cmake`、`ninfer_nvfp4_non_rdc` 库、`{attn_input_proj,gdn_input_proj,linear_add,linear_swiglu}/{fp8,nvfp4}`、`softmax_attention/dense/causal_cache/{fp8,nvfp4}`、bf16 家族 TMA 内核；验证：sm75 构建图中无被排除源（`ninja -t commands` 抽查无 fp8/nvfp4/TMA 目标）
+- [ ] 3.2 bf16 分发适配：21 个 `linear/bf16/shapes/*.cu` 的 T≥64 TMA 分支 `#if !NINFER_SM75` 并改道 mma/sliced_k，`bf16_template_launch.cuh` / `bf16_launch.cuh` / `bf16_instances.cuh` 排除 TMA 部分；验证：bf16 GEMM 全 T-bucket（1/2/4/16/32/64/256）单元测试在 sm75 绿且逐位一致
+- [ ] 3.3 wrapper 35 文件 fp8/nvfp4 if 链加 `#if !NINFER_SM75`，加载被排除格式工件时显式报错（指明格式在 sm75 不可用）；验证：sm75 上加载 fp8 工件得到显式错误而非崩溃
+- [ ] 3.4 `attn_input_proj` / `gdn_input_proj` / `linear_add` / `linear_swiglu` 的 bf16 TMA 变体同法守卫；验证：编译通过
+- [ ] 3.5 编译迭代至收敛：sm75 全量构建（含 tests + benchmarks）；验证：0 错误、全部二进制链接成功（L2）
+
+## 4. 单元测试套件全绿（P3，L3）
+
+- [ ] 4.1 `ctest --test-dir build --output-on-failure`（158 文件，fp8/nvfp4 相关跳过）；验证：全绿
+- [ ] 4.2 GDN 回放逐位一致测试（`test_gdn_replay_records.cpp`）；验证：绿——红则停在此闸门定位 F_fp 链条（预案见 design.md Risks），不进下一组
+- [ ] 4.3 补 sm75 专项测试：q8 GEMM 27B 形状（含 n14336_k5120、n5120_k17408 类）、int8 prefill 注意力 vs bf16 参考、GDN 两阶段 vs 参考；验证：专项全绿
+
+## 5. 试部署（独立树 + 独立端口，fork 全程不动）
+
+- [ ] 5.1 工件升级（Mac）：`python3 tools/upgrade_ninfer_v2_to_v3.py qwen3_8_27b_v2.ninfer qwen3_8_27b_v3.ninfer`；验证：脚本 0 退出、v2 文件字节不变、v3 生成（~18.2 GB）
+- [ ] 5.2 rsync sm75 源树到 x99 独立目录（与 fork 树隔离）并构建；验证：独立目录构建 0 错误
+- [ ] 5.3 独立端口起 serve（18081，`--kv-dtype int8 --max-concurrency 1`）并跑 HTTP 契约 smoke；验证：`python3 -m tools.smoke.serve_contract --base-url http://127.0.0.1:18081` 全过，且 fork 服务端口仍正常响应
+
+## 6. 27B 模型验证（L4 七步）
+
+- [ ] 6.1 ① 权重加载：试部署实例启动；验证：日志四段（绑定→引擎就绪含加载摘要→预热→服务就绪）、无 OOM
+- [ ] 6.2 ② 单 token decode：`ninfer <v3> --prompt <参照> --max-new 1 --greedy --kv-dtype int8`；验证：token 与 fork x99 参照一致
+- [ ] 6.3 ③ prefill 路径：`--max-context 4096` + 长参照 prompt；验证：token 与参照一致
+- [ ] 6.4 ④ prefill/decode 一致性：同 prompt 两路径对比；验证：token 序列一致
+- [ ] 6.5 ⑤ 投机解码：加 `--spec mtp --draft-tokens 3`；验证：输出与 ④ 逐 token 一致，接受率报告正常
+- [ ] 6.6 ⑥ NIAH 32k / 64k；验证：两档 needle 均答对
+- [ ] 6.7 ⑦ 长生成：`--max-new 1024`；验证：完成且无 NaN、无崩溃
+
+## 7. 长稳 + 回归（P6，L5）
+
+- [ ] 7.1 1 小时持续负载（单 GPU 单实例，含热管理观察）；验证：无崩溃/OOM/NaN，tok/s 稳定
+- [ ] 7.2 全量回归 L3 + L4；验证：全部重跑绿
+- [ ] 7.3 性能报告（decode tok/s、TTFT vs fork 基线、带宽实测引用）；验证：报告落盘且含全部数字
+
+## 8. 正式部署
+
+- [ ] 8.1 进程管理：按 x99 现有 fork 部署方式纳管 sm75 服务（上机确认后照搬，无 systemd 则注册 unit）；验证：服务由管理器托管且重启后自恢复
+- [ ] 8.2 客户端切换 + 健康检查（启动日志 / HTTP smoke / greedy 参照三项）；验证：三项全过
+- [ ] 8.3 稳定运行 1 周后退役 fork 服务（保留 build 目录与 v2 工件）；验证：新服务 7×24h 无故障后下线 fork 服务
+
+## Workflow follow-up
+
+- L5 绿且评审通过后归档：`openspec archive add-sm75-2080ti-support`（三个能力 spec 并入 `openspec/specs/`）
+- 归档后验证 `openspec list --specs` 出现 sm75-build / sm75-kernels / sm75-serving
