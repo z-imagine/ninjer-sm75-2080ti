@@ -2,7 +2,7 @@
 
 ## 1. 构建解锁（P0）
 
-- [ ] 1.1 修改 `CMakeLists.txt:3-12`：架构允许列表 {75, 86, 120a}，sm75 定义全局宏 `NINFER_SM75`，其他架构报错列出允许集；验证：x99 上 `-DCMAKE_CUDA_ARCHITECTURES=75` 配置成功、`-DCMAKE_CUDA_ARCHITECTURES=80` 配置失败且报错列出 {75, 86, 120a}
+- [x] 1.1 修改 `CMakeLists.txt:3-12`：架构允许列表 {75, 86, 120a}，sm75 定义全局宏 `NINFER_SM75`，其他架构报错列出允许集；验证：x99 上 `-DCMAKE_CUDA_ARCHITECTURES=75` 配置成功、`-DCMAKE_CUDA_ARCHITECTURES=80` 配置失败且报错列出 {75, 86, 120a}
 - [ ] 1.2 验证基线不变：x99 上以 `sm_120a` 配置并全量构建成功（该 GPU 上只验证编译，不运行）；验证：120a 构建 0 错误
 - [ ] 1.3 实测定局带宽之争：x99 独立构建运行 `tools/hbm_bandwidth_probe.cu`；验证：记录实测 GB/s（616 或 448），写入 x99 笔记，供 P5 调优优先级参考（不影响本变更 spec）
 
