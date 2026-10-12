@@ -1,15 +1,22 @@
 cmake_minimum_required(VERSION 3.28)
 
-# The current implementation is compiled only for sm_120a. Set and validate the
+# The baseline is sm_120a; sm_75 (2080Ti) is supported through guarded
+# fallbacks (NINFER_SM75) and sm_86 through native paths. Set and validate the
 # architecture before CUDA compiler detection so CMake never injects a generic
 # host-toolchain default or accepts an unsupported target.
 if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
   set(CMAKE_CUDA_ARCHITECTURES 120a CACHE STRING "CUDA architectures to build")
 endif()
-if(NOT CMAKE_CUDA_ARCHITECTURES STREQUAL "120a")
+set(NINFER_SUPPORTED_CUDA_ARCHITECTURES 75 86 120a)
+list(FIND NINFER_SUPPORTED_CUDA_ARCHITECTURES "${CMAKE_CUDA_ARCHITECTURES}"
+  NINFER_CUDA_ARCH_INDEX)
+if(NINFER_CUDA_ARCH_INDEX EQUAL -1)
   message(FATAL_ERROR
-    "NInfer supports only CMAKE_CUDA_ARCHITECTURES=120a; got "
+    "NInfer supports CMAKE_CUDA_ARCHITECTURES in {75;86;120a}; got "
     "'${CMAKE_CUDA_ARCHITECTURES}'")
+endif()
+if(CMAKE_CUDA_ARCHITECTURES STREQUAL "75")
+  add_compile_definitions(NINFER_SM75=1)
 endif()
 
 project(ninfer LANGUAGES C CXX CUDA)
