@@ -8,7 +8,7 @@
 
 ## 2. 回退层（P1，4 个共享头）
 
-- [ ] 2.1 `src/ops/common/mma.cuh` 加 `#if NINFER_SM75`：mma_bf16 → FMA 模拟（bf16→f32 无损 + 同序累加）、mma_tf32 → 先舍入 tf32 再 FMA、mma_f16/mma_s8 核对 PTX shape 后原生直用、fp8/nvfp4 消费方加 static_assert 防护；验证：编译通过
+- [x] 2.1 `src/ops/common/mma.cuh` 加 `#if NINFER_SM75`：mma_bf16 → FMA 模拟（bf16→f32 无损 + 同序累加）、mma_tf32 → 先舍入 tf32（RNE）再 FMA（D2）；mma_f16 → 2× 原生 m16n8k8 分解、mma_s8 → 4× 原生 m8n8k16 分解（D8：m16n8k16/m16n8k32 非 sm75 原生，ptxas 12.4 逐 shape 实证）；fp8/nvfp4 → trap 桩，消费方由 3.1/3.3 CMake 排除并在加载时显式报错。验证：x99 消费方 TU 定向编译——`gdn prepare.cu`（mma_bf16）全绿；`gdn recurrence.cu`（mma_bf16+tf32）/`q8_mma.cu`/`int8 launch.cu`（mma_s8）零 mma 错误，残余仅 cp.async（2.3 范围）
 - [ ] 2.2 新增 sm75 自测（tests/）：mma_bf16/tf32 模拟 vs 软件参考，随机输入逐位对比；验证：x99 上该测试绿（L1）
 - [ ] 2.3 `src/ops/common/memory.cuh`：cp_async / cp_async_zfill → 普通 int4/int2/int 拷贝，commit/wait → no-op；验证：走回退路径的小 GEMM 自测绿（L1）
 - [ ] 2.4 `src/core/pdl.cuh`：launch_dependent → `cudaLaunchKernel`，trigger/wait → no-op（16 个消费文件零改动）；验证：任意 PDL 消费内核（如 bf16 GEMM）编译运行且输出与参考一致

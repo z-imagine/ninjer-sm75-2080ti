@@ -15,7 +15,8 @@
 | `mma_fp8` / `mma_nvfp4` | sm100 | 9 文件 | 格式物理不可用，排除 |
 | PDL | sm90 | 16 文件（经 1 个共享头） | 可（no-op，消费方零改动） |
 
-sm75 原生可用：`ldmatrix`、`mma_f16`（m16n8k16）、`mma_s8`（m16n8k32）、dp4a。
+sm75 原生可用：`ldmatrix`（含 `_t`）、dp4a、`tanh.approx.f32`、`ex2.approx(.ftz).f32`、`cudaLaunchKernelEx`（PTX ISA / CUDA API 架构要求 ≤ sm75）。
+**mma 原生面（task 2.1 核对结论，ptxas 12.4 逐一实测 + 2080Ti 运行验证）**：原生仅 `mma m16n8k8 f16`（f32 累加）与 `mma m8n8k16 s8`（s32 累加）两条，均运行验证正确。ptxas 拒绝 sm_75（"requires .target sm_80 or higher"）：`mma m16n8k16 f16`、`mma m16n8k16 bf16`、tf32 `m16n8k4`、tf32 `m16n8k8`、s8 `m16n8k16`、s8 `m16n8k32`。⇒ 本 Context 早期"mma_f16（m16n8k16）/mma_s8（m16n8k32）原生"的记载有误，已按实测更正；回退策略见 D2 与 D8。
 硬件：68 SM、FP32 13.4 TFLOPS、FP16 张量核 53.8 TFLOPS、INT8 张量核 215.2 TOPS、带宽标称 616 GB/s（x99 底稿记 448，待实测）。
 约束：upstream 无 install 目标，从源码构建树运行；27B 权重 W8A16（16.96 GiB），22G 显存下 KV 用 Int8Group64（33.8 KiB/tok）。
 
@@ -54,6 +55,9 @@ TMA 内核（47 文件）的 tensor map / 异步 tile 拷贝没有"关掉 TMA �
 
 **D7 分发适配：bf16 per-shape select 的 T≥64 TMA 分支 `#if !NINFER_SM75` 改道 mma/sliced_k。**
 21 个 bf16 shape 文件 + 2 个 launch 头 + 35 个 wrapper。q8 家族（22 shape 文件）已核实无 TMA/fp8 引用，零改动。
+
+**D8 mma_f16/mma_s8 回退：原生小 shape 分解，而非 FMA 模拟（task 2.1 核对落地）。**
+核对结论（见 Context 更正）：sm75 原生 mma 只有 m16n8k8 f16 与 m8n8k16 s8。故 `mma_f16`（m16n8k16）= 2× 原生 m16n8k8：第一发 A={a0,a1}、B={b0} 累加 c0..c3，第二发 A={a2,a3}、B={b1} 继续累加——寄存器映射按 PTX ISA m16n8k16/m16n8k8 两个 fragment 表直接对应（m16n8k16 的 a2/a3 = m16n8k8 的 a0/a1 于 k 8-15，C/D 两 shape 布局相同），该分解已用随机输入探测在 2080Ti 上验证 maxerr=0。`mma_s8`（m16n8k32）= 4× 原生 m8n8k16：(a0,b0)→c0,c1（行 0-7 k 0-15）、(a1,b0)→c2,c3（行 8-15 k 0-15）、(a2,b1)→c0,c1（行 0-7 k 16-31）、(a3,b1)→c2,c3（行 8-15 k 16-31），整数运算与累加顺序无关，正确性由 L1 自测（2.2）验证。两条均走张量核，不经过 FMA 模拟。
 
 ## Risks / Trade-offs
 
