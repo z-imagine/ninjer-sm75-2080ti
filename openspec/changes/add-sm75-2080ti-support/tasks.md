@@ -32,11 +32,11 @@
 
 - [x] 5.1 工件升级（Mac）：`python3 tools/upgrade_ninfer_v2_to_v3.py qwen3_8_27b_v2.ninfer qwen3_8_27b_v3.ninfer`；验证：脚本 0 退出、v2 文件字节不变、v3 生成（~18.2 GB）。**2026-10-13 于 x99 执行（v2 工件在 x99，免 17G 往返传输；脚本纯标准库 Python）：输入 `…/models/qwen38-27b/ninfer-2080ti/qwen3_8_27b_v2.ninfer`（1124 objects，weights_id=groupwise-int，即 fork 服务当前加载的同权重文件）→ 输出 `qwen3_8_27b_v3_sm75.ninfer` 18,210,749,936 B ≈ 18.2 GB；UPGRADE_EXIT=0（"weights preserved, qwen3_8.jinja installed"）；v2 SHA256 复核不变；上游 `tools.artifact.inspect` 解析通过（v3、qwen3.8-27b、1124 objects、text+vision+mtp）。命名 `*_sm75` 以免覆盖同目录既有的 20G `qwen3_8_27b_v3.ninfer`（1190 objects、不同量化布局，本变更不用）。**
 - [x] 5.2 rsync sm75 源树到 x99 独立目录（与 fork 树隔离）并构建；验证：独立目录构建 0 错误。**独立树即 x99 `/media/samuel/ext_sdd2t/AiProjects/ninfer-sm75`（与 fork 的 docker 构建上下文/镜像完全隔离，fork 容器只挂 `…/models/qwen38-27b/ninfer-2080ti`）：整树 rsync 自 Mac HEAD（0638887a，含本条 docs），build12 全量构建 158/158 目标 0 错误（BUILD12_EXIT=0）。**
-- [ ] 5.3 独立端口起 serve（18081，`--kv-dtype int8 --max-concurrency 1`）并跑 HTTP 契约 smoke；验证：`python3 -m tools.smoke.serve_contract --base-url http://127.0.0.1:18081` 全过，且 fork 服务端口仍正常响应
+- [x] 5.3 独立端口起 serve（18081，`--kv-dtype int8 --max-concurrency 1`）并跑 HTTP 契约 smoke；验证：`python3 -m tools.smoke.serve_contract --base-url http://127.0.0.1:18081` 全过，且 fork 服务端口仍正常响应。**2026-10-14 x99：`./build/apps/ninfer-serve qwen3_8_27b_v3_sm75.ninfer --host 127.0.0.1 --port 18081 --kv-dtype int8 --kv-capacity auto --max-context 65536 --max-concurrency 1 --vision`（vision 为 smoke 契约 image 消息步必需）→ engine ready 43.4 s（weights 16.2 GiB，KV 65,536 tokens int8，runtime 3.18 GiB，free 1.77 GiB），smoke `SMOKE_EXIT=0`（count_tokens 55 / chat completions length 4 / responses 59→16 / image 125 prompt tokens / anthropic max_tokens 全过）。sm75 首起在 startup.cpp:812 被 Qwen3.5 family CC120 硬闸门拦下，放宽为 NINFER_SM75 下接受 {75,120}（67753b09，全库唯一能力检查点，回退层已齐且 ctest 131/131 绿）。fork 端口条件：fork 服务已由用户于本部署前手动停止（2026-10-14 ~01:20），条件不再适用；sm75 实例全程未触碰 fork。**
 
 ## 6. 27B 模型验证（L4 七步）
 
-- [ ] 6.1 ① 权重加载：试部署实例启动；验证：日志四段（绑定→引擎就绪含加载摘要→预热→服务就绪）、无 OOM
+- [x] 6.1 ① 权重加载：试部署实例启动；验证：日志四段（绑定→引擎就绪含加载摘要→预热→服务就绪）、无 OOM。**2026-10-14 x99 `/tmp/serve18081.log` 四段齐：`starting engine`（绑定）→ `weights ready | 16.2 GiB` + `engine ready | qwen3.8-27b | total 43.4 s`（加载摘要）→ `warmup complete | 1.6 s`（预热）→ `listening on http://127.0.0.1:18081`（服务就绪）；无 OOM，稳态 free 1.77 GiB（KV 65,536 tokens int8 + vision media cache 1.00 GiB）。**
 - [ ] 6.2 ② 单 token decode：`ninfer <v3> --prompt <参照> --max-new 1 --greedy --kv-dtype int8`；验证：token 与 fork x99 参照一致
 - [ ] 6.3 ③ prefill 路径：`--max-context 4096` + 长参照 prompt；验证：token 与参照一致
 - [ ] 6.4 ④ prefill/decode 一致性：同 prompt 两路径对比；验证：token 序列一致
