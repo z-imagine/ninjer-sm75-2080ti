@@ -3,6 +3,8 @@
 #include <cuda_pipeline.h>
 #include <cuda_runtime.h>
 
+#include <cstdint>
+
 namespace ninfer::ops {
 
 enum class Cache { ca, cg };
@@ -31,6 +33,52 @@ __device__ __forceinline__ void store_vec(T* ptr, V value) {
 __device__ __forceinline__ unsigned smem_addr(const void* ptr) {
     return static_cast<unsigned>(__cvta_generic_to_shared(ptr));
 }
+
+#if defined(NINFER_SM75)
+// sm75 (Turing) has no cp.async (sm80+): fall back to synchronous vector
+// copies. The copy runs in the issuing thread, so commit/wait are no-ops and
+// no extra synchronization is needed — every consumer already __syncthreads()
+// between issue and use, exactly as with the async path.
+// NOTE: pipe_copy/pipe_commit/pipe_wait below keep cuda_pipeline.h, which
+// lowers to plain copies below sm80, so they need no fallback.
+
+namespace sm75_cp {
+template <int Bytes>
+__device__ __forceinline__ void copy_plain(void* smem_dst, const void* gmem_src) {
+    if constexpr (Bytes == 4) {
+        *reinterpret_cast<std::uint32_t*>(smem_dst) =
+            *reinterpret_cast<const std::uint32_t*>(gmem_src);
+    } else if constexpr (Bytes == 8) {
+        *reinterpret_cast<uint2*>(smem_dst) = *reinterpret_cast<const uint2*>(gmem_src);
+    } else {
+        *reinterpret_cast<uint4*>(smem_dst) = *reinterpret_cast<const uint4*>(gmem_src);
+    }
+}
+} // namespace sm75_cp
+
+template <int Bytes, Cache Policy = Cache::ca>
+__device__ __forceinline__ void cp_async(void* smem_dst, const void* gmem_src) {
+    static_assert(Bytes == 4 || Bytes == 8 || Bytes == 16, "cp_async supports 4, 8, or 16 bytes");
+    sm75_cp::copy_plain<Bytes>(smem_dst, gmem_src);
+}
+
+template <int Bytes, Cache Policy = Cache::ca>
+__device__ __forceinline__ void cp_async_zfill(void* smem_dst, const void* gmem_src,
+                                               int src_bytes) {
+    static_assert(Bytes == 4 || Bytes == 8 || Bytes == 16,
+                  "cp_async_zfill supports 4, 8, or 16 bytes");
+    auto* dst = reinterpret_cast<std::uint8_t*>(smem_dst);
+    const auto* src = reinterpret_cast<const std::uint8_t*>(gmem_src);
+    #pragma unroll
+    for (int i = 0; i < Bytes; ++i) dst[i] = (i < src_bytes) ? src[i] : std::uint8_t{0};
+}
+
+__device__ __forceinline__ void cp_commit() {}
+
+template <int Groups>
+__device__ __forceinline__ void cp_wait() {}
+
+#else
 
 template <int Bytes, Cache Policy = Cache::ca>
 __device__ __forceinline__ void cp_async(void* smem_dst, const void* gmem_src) {
@@ -71,6 +119,8 @@ __device__ __forceinline__ void cp_wait() {
     static_assert(Groups >= 0 && Groups <= 7, "cp_wait group count must fit the PTX immediate");
     asm volatile("cp.async.wait_group %0;\n" : : "n"(Groups));
 }
+
+#endif // NINFER_SM75
 
 template <int Bytes>
 __device__ __forceinline__ void pipe_copy(void* smem_dst, const void* gmem_src) {
