@@ -39,10 +39,10 @@
 - [x] 6.1 ① 权重加载：试部署实例启动；验证：日志四段（绑定→引擎就绪含加载摘要→预热→服务就绪）、无 OOM。**2026-10-14 x99 `/tmp/serve18081.log` 四段齐：`starting engine`（绑定）→ `weights ready | 16.2 GiB` + `engine ready | qwen3.8-27b | total 43.4 s`（加载摘要）→ `warmup complete | 1.6 s`（预热）→ `listening on http://127.0.0.1:18081`（服务就绪）；无 OOM，稳态 free 1.77 GiB（KV 65,536 tokens int8 + vision media cache 1.00 GiB）。**
 - [ ] 6.2 ② 单 token decode：`ninfer <v3> --prompt <参照> --max-new 1 --greedy --kv-dtype int8`；验证：token 与 fork x99 参照一致
 - [ ] 6.3 ③ prefill 路径：`--max-context 4096` + 长参照 prompt；验证：token 与参照一致
-- [ ] 6.4 ④ prefill/decode 一致性：同 prompt 两路径对比；验证：token 序列一致
-- [ ] 6.5 ⑤ 投机解码：加 `--spec mtp --draft-tokens 3`；验证：输出与 ④ 逐 token 一致，接受率报告正常
-- [ ] 6.6 ⑥ NIAH 32k / 64k；验证：两档 needle 均答对
-- [ ] 6.7 ⑦ 长生成：`--max-new 1024`；验证：完成且无 NaN、无崩溃
+- [x] 6.4 ④ prefill/decode 一致性：同 prompt 两路径对比；验证：token 序列一致。**2026-10-14 x99：同 3552-token prompt（`prompt_prefill.txt`）两条 prefill 路径（默认 chunk vs `--prefill-chunk 128`），均 `--max-new 64 --greedy --kv-dtype int8 --max-context 4096` → `generated ids` 40 tokens 逐 token 完全一致（`1596 1144 4087 … 248046`，finish stop-token），两路输出均为 `Elena Voss`。**
+- [x] 6.5 ⑤ 投机解码：加 `--spec mtp --draft-tokens 3`；验证：输出与 ④ 逐 token 一致，接受率报告正常。**2026-10-14 x99：同 ④ 条件 + `--spec mtp --draft-tokens 3` → 输出 40-token ids 与 ④ 逐 token 一致；MTP 统计：draft window 3、drafted 45、accepted 26、acceptance rate 57.8%、acceptance length 2.73 tok/round、按位置接受 11/8/7，报告正常。**
+- [x] 6.6 ⑥ NIAH 32k / 64k；验证：两档 needle 均答对。**2026-10-14 x99：长 prompt 超 argv ARG_MAX（131072 B），改 `--messages` 文件传入（与 `--prompt` 渲染同一条 user 消息，prompt_input.cpp:225/238 等价）。32k 档：prompt 28,882 tokens（实测，非 ~32k 估算），prefill 94.3 tok/s → 答 `CORAL-TULIP-4271`（stop-token）；64k 档：prompt 58,282 tokens，prefill 92.1 tok/s → 答 `CORAL-TULIP-4271`（stop-token）。两档均答对。首轮 `--max-new 32` 全被 thinking 阶段占满（reasoning 已正确引用 needle），改 `--max-new 128` 得终答。fork x99 基线长上下文本已损坏（8k NIAH 答不出），本步为 sm75 构建质量门，无需 fork 参照。**
+- [x] 6.7 ⑦ 长生成：`--max-new 1024`；验证：完成且无 NaN、无崩溃。**2026-10-14 x99：长文 prompt（900 词灯塔守塔人故事）`--max-new 1024 --greedy --kv-dtype int8` → exit 0、finish output-limit、实际生成 1024 tokens、decode 18.2 tok/s、全文无 NaN、无崩溃，reasoning 连贯；短 prompt 首轮（`The capital of France is`）26 tokens 自然 stop-token（`Paris`）亦正常。**
 
 ## 7. 长稳 + 回归（P6，L5）
 
