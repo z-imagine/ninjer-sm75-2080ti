@@ -14,10 +14,19 @@ void bf16_attn_input_mma_launch(const Tensor& x, const Weight& weight, Tensor& q
         launch_bf16_a16_mma<Bf16ScheduleInstance<S, 5120>>(p, output, LinearIdentityEpilogue{},
                                                            stream);
     };
+#if defined(NINFER_SM75)
+    // sm75 has no TMA: route through the cp.async MMA path with token slicing.
+    const auto tma = [&]<class S>() {
+        launch_bf16_a16_mma<Bf16ScheduleInstance<Bf16A16MmaR64T32K64S3, 5120>>(p, output,
+                                                                               LinearIdentityEpilogue{},
+                                                                               stream);
+    };
+#else
     const auto tma = [&]<class S>() {
         launch_bf16_a16_tma_mma<Bf16ScheduleInstance<S, 5120>>(p, output, LinearIdentityEpilogue{},
                                                                stream);
     };
+#endif // NINFER_SM75
     if (p.tokens <= 16)
         launch_bf16_a16_sliced_k_mma<Bf16ScheduleInstance<Bf16A16SlicedR32T16W4, 5120>>(
             p, output, LinearIdentityEpilogue{}, stream);

@@ -28,11 +28,20 @@ void bf16_linear_add_mma_launch(const Tensor& x, const Weight& weight, Tensor& r
                                 cudaStream_t stream) {
     auto* data     = static_cast<__nv_bfloat16*>(residual.data);
     const auto p   = bf16_a16_operands(x, weight);
+#if defined(NINFER_SM75)
+    // sm75 has no TMA: route through the cp.async MMA path with token slicing.
+    const auto tma = [&]<class S>() {
+        launch_bf16_a16_mma<Bf16ScheduleInstance<Bf16A16MmaR32T32K192S2, 6144>>(
+            p, LinearBf16Output{data, weight.n}, LinearResidualAddEpilogue{{data, weight.n}},
+            stream);
+    };
+#else
     const auto tma = [&]<class S>() {
         launch_bf16_a16_tma_mma<Bf16ScheduleInstance<S, 6144>>(
             p, LinearBf16Output{data, weight.n}, LinearResidualAddEpilogue{{data, weight.n}},
             stream);
     };
+#endif // NINFER_SM75
     if (p.tokens <= 96)
         tma.template operator()<Bf16A16TmaR64T32K64S3>();
     else if (p.tokens <= 128)
