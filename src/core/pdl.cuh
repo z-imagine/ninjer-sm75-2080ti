@@ -14,6 +14,29 @@ struct LaunchConfig {
     cudaStream_t stream            = nullptr;
 };
 
+#if defined(NINFER_SM75)
+// sm75 has no programmatic dependent launch (griddepcontrol is sm90+). Fall back to a plain
+// stream-ordered launch (cudaLaunchKernelEx without the PDL attribute): stream ordering provides
+// the full producer -> consumer ordering that PDL only relaxes, so trigger/wait are no-ops and
+// no consumer control path changes.
+template <class... KernelArgs, class... CallArgs>
+[[nodiscard]] inline cudaError_t
+launch_dependent(const LaunchConfig& launch, void (*kernel)(KernelArgs...), CallArgs&&... args) {
+    cudaLaunchConfig_t config{};
+    config.gridDim          = launch.grid;
+    config.blockDim         = launch.block;
+    config.dynamicSmemBytes = launch.dynamic_smem_bytes;
+    config.stream           = launch.stream;
+
+    return cudaLaunchKernelEx(&config, kernel, std::forward<CallArgs>(args)...);
+}
+
+__device__ __forceinline__ void trigger_dependents() {}
+
+__device__ __forceinline__ void wait_for_dependencies() {}
+
+#else
+
 // Launches a consumer kernel as a programmatic dependent of the immediately preceding producer
 // kernel in the same stream. Every consumer control path that reads producer output must first call
 // wait_for_dependencies().
@@ -41,5 +64,7 @@ __device__ __forceinline__ void trigger_dependents() { cudaTriggerProgrammaticLa
 
 // Call on every consumer control path before its first access to producer-dependent data.
 __device__ __forceinline__ void wait_for_dependencies() { cudaGridDependencySynchronize(); }
+
+#endif // NINFER_SM75
 
 } // namespace ninfer::pdl
