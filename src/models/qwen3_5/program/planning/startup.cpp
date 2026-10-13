@@ -809,9 +809,16 @@ void validate_target_options(const execution::Parameters& parameters, DeviceCont
         }
         break;
     }
+#if defined(NINFER_SM75)
+    if (device.compute_capability() != 75 && device.compute_capability() != 120) {
+        throw std::invalid_argument(
+            "Qwen3.5 family runtime requires compute capability 7.5 or 12.0");
+    }
+#else
     if (device.compute_capability() != 120) {
         throw std::invalid_argument("Qwen3.5 family runtime requires compute capability 12.0");
     }
+#endif // NINFER_SM75
 }
 
 std::unique_ptr<SequencePlanImpl> build_sequence_candidate(const SequencePlanningInputs& inputs,
