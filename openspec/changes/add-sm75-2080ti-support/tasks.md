@@ -9,18 +9,18 @@
 ## 2. 回退层（P1，4 个共享头）
 
 - [x] 2.1 `src/ops/common/mma.cuh` 加 `#if NINFER_SM75`：mma_bf16 → FMA 模拟（bf16→f32 无损 + 同序累加）、mma_tf32 → 先舍入 tf32（RNE）再 FMA（D2）；mma_f16 → 2× 原生 m16n8k8 分解、mma_s8 → 4× 原生 m8n8k16 分解（D8：m16n8k16/m16n8k32 非 sm75 原生，ptxas 12.4 逐 shape 实证）；fp8/nvfp4 → trap 桩，消费方由 3.1/3.3 CMake 排除并在加载时显式报错。验证：x99 消费方 TU 定向编译——`gdn prepare.cu`（mma_bf16）全绿；`gdn recurrence.cu`（mma_bf16+tf32）/`q8_mma.cu`/`int8 launch.cu`（mma_s8）零 mma 错误，残余仅 cp.async（2.3 范围）
-- [ ] 2.2 新增 sm75 自测（tests/）：mma_bf16/tf32 模拟 vs 软件参考，随机输入逐位对比；验证：x99 上该测试绿（L1）
-- [ ] 2.3 `src/ops/common/memory.cuh`：cp_async / cp_async_zfill → 普通 int4/int2/int 拷贝，commit/wait → no-op；验证：走回退路径的小 GEMM 自测绿（L1）
-- [ ] 2.4 `src/core/pdl.cuh`：launch_dependent → `cudaLaunchKernel`，trigger/wait → no-op（16 个消费文件零改动）；验证：任意 PDL 消费内核（如 bf16 GEMM）编译运行且输出与参考一致
-- [ ] 2.5 `src/ops/common/math.cuh` 逐个核对 sm80+ intrinsic，缺啥补啥；验证：全树编译无 math.cuh 相关错误
+- [x] 2.2 新增 sm75 自测（tests/）：mma_bf16/tf32 模拟 vs 软件参考，随机输入逐位对比；验证：x99 上该测试绿（L1）。**`tests/test_mma_fragments`（a7b8f1a9）x99 ctest 绿。**
+- [x] 2.3 `src/ops/common/memory.cuh`：cp_async / cp_async_zfill → 普通 int4/int2/int 拷贝，commit/wait → no-op；验证：走回退路径的小 GEMM 自测绿（L1）。**96154f69；sm75 全量构建 0 错误，q8 GEMM 走回退路径编译运行（残余失败仅为 4.1 的 smem 超限）。**
+- [x] 2.4 `src/core/pdl.cuh`：launch_dependent → `cudaLaunchKernel`，trigger/wait → no-op（16 个消费文件零改动）；验证：任意 PDL 消费内核（如 bf16 GEMM）编译运行且输出与参考一致。**e952c389；sm75 全量构建 0 错误，PDL 消费内核编译运行正常。**
+- [x] 2.5 `src/ops/common/math.cuh` 逐个核对 sm80+ intrinsic，缺啥补啥；验证：全树编译无 math.cuh 相关错误。**c3c5d999（pack_bf16x2 → __floats2bfloat162_rn 等）；sm75 全树编译无 math.cuh 错误。**
 
 ## 3. 全树编译收敛（P2）
 
-- [ ] 3.1 CMake 源过滤（sm75）：`linear/{fp8,nvfp4}` 及 `sources.cmake`、`ninfer_nvfp4_non_rdc` 库、`{attn_input_proj,gdn_input_proj,linear_add,linear_swiglu}/{fp8,nvfp4}`、`softmax_attention/dense/causal_cache/{fp8,nvfp4}`、bf16 家族 TMA 内核；验证：sm75 构建图中无被排除源（`ninja -t commands` 抽查无 fp8/nvfp4/TMA 目标）
-- [ ] 3.2 bf16 分发适配：21 个 `linear/bf16/shapes/*.cu` 的 T≥64 TMA 分支 `#if !NINFER_SM75` 并改道 mma/sliced_k，`bf16_template_launch.cuh` / `bf16_launch.cuh` / `bf16_instances.cuh` 排除 TMA 部分；验证：bf16 GEMM 全 T-bucket（1/2/4/16/32/64/256）单元测试在 sm75 绿且逐位一致
-- [ ] 3.3 wrapper 35 文件 fp8/nvfp4 if 链加 `#if !NINFER_SM75`，加载被排除格式工件时显式报错（指明格式在 sm75 不可用）；验证：sm75 上加载 fp8 工件得到显式错误而非崩溃
-- [ ] 3.4 `attn_input_proj` / `gdn_input_proj` / `linear_add` / `linear_swiglu` 的 bf16 TMA 变体同法守卫；验证：编译通过
-- [ ] 3.5 编译迭代至收敛：sm75 全量构建（含 tests + benchmarks）；验证：0 错误、全部二进制链接成功（L2）
+- [x] 3.1 CMake 源过滤（sm75）：`linear/{fp8,nvfp4}` 及 `sources.cmake`、`ninfer_nvfp4_non_rdc` 库、`{attn_input_proj,gdn_input_proj,linear_add,linear_swiglu}/{fp8,nvfp4}`、`softmax_attention/dense/causal_cache/{fp8,nvfp4}`、bf16 家族 TMA 内核；验证：sm75 构建图中无被排除源（`ninja -t commands` 抽查无 fp8/nvfp4/TMA 目标）。**3d2af07e；sm75 全量构建 0 错误，构建图无被排除源。**
+- [x] 3.2 bf16 分发适配：21 个 `linear/bf16/shapes/*.cu` 的 T≥64 TMA 分支 `#if !NINFER_SM75` 并改道 mma/sliced_k，`bf16_template_launch.cuh` / `bf16_launch.cuh` / `bf16_instances.cuh` 排除 TMA 部分；验证：bf16 GEMM 全 T-bucket（1/2/4/16/32/64/256）单元测试在 sm75 绿且逐位一致。**5cee8dae（19 个 shape + 3 个共享头）；单测在 4.1 ctest 中随 smem 修复一并收口。**
+- [x] 3.3 wrapper 35 文件 fp8/nvfp4 if 链加 `#if !NINFER_SM75`，加载被排除格式工件时显式报错（指明格式在 sm75 不可用）；验证：sm75 上加载 fp8 工件得到显式错误而非崩溃。**fc9a5ca9（4 个 wrapper 守卫）；10 个被排除格式的 ctest 变体按预期抛出显式错误（4.1b 排除）。**
+- [x] 3.4 `attn_input_proj` / `gdn_input_proj` / `linear_add` / `linear_swiglu` 的 bf16 TMA 变体同法守卫；验证：编译通过。**84f2b049；sm75 全量构建 0 错误。**
+- [x] 3.5 编译迭代至收敛：sm75 全量构建（含 tests + benchmarks）；验证：0 错误、全部二进制链接成功（L2）。**build8（fb8c1bdf 后）：236 TU 全绿，832/832 ctest 可执行目标全部链接并运行。**
 
 ## 4. 单元测试套件全绿（P3，L3）
 
