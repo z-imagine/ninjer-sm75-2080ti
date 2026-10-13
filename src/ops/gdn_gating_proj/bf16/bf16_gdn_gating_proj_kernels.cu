@@ -357,14 +357,14 @@ bool launch_bf16_prefill_mma(Bf16GdnGatingTokenVariant variant, const Tensor& x,
             const cudaError_t attr_full = cudaFuncSetAttribute(
                 full_kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, kSmemBytes);
             const cudaError_t attr_pred = cudaFuncSetAttribute(
-                pred_kernel, cudaFuncSetAttributeMaxDynamicSharedMemorySize, kSmemBytes);
+                pred_kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, kSmemBytes);
             if (attr_full != cudaSuccess || attr_pred != cudaSuccess) { return 1; }
             int full_ctas = 0;
             int pred_ctas = 0;
             const cudaError_t occ_full = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
-                &full_ctas, full_kernel, block.x, kSmemBytes);
+                &full_ctas, full_kernel, Warps * 32, kSmemBytes);
             const cudaError_t occ_pred = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
-                &pred_ctas, pred_kernel, block.x, kSmemBytes);
+                &pred_ctas, pred_kernel, Warps * 32, kSmemBytes);
             if (occ_full != cudaSuccess || occ_pred != cudaSuccess) { return 1; }
             return std::max(1, std::min(full_ctas, pred_ctas));
         }();

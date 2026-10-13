@@ -618,7 +618,6 @@ int run_weight_inputs() {
             failures += run_target_projection_case(qk, &gv, t, ops::LinearPolicy::A16Only, t == 17);
         }
     }
-    {
 #if !defined(NINFER_SM75)
     // FP8 / NVFP4 parent weights are not supported on sm_75; dispatchers throw
     // explicit errors, so run these variants only where the formats exist.
