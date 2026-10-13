@@ -1,4 +1,6 @@
 #pragma once
+
+#include "ops/common/shm_limit.cuh"
 #include "ops/softmax_attention/dense/causal_cache/nvfp4/tile_io.cuh"
 #include "ops/softmax_attention/dense/causal_cache/nvfp4/schedule.cuh"
 #include "ops/softmax_attention/common/causal_partition.h"
@@ -68,7 +70,7 @@ __launch_bounds__(Schedule::kThreads, Schedule::kMinBlocks) __global__
     static_assert(!ParallelQueries || !CacheInput::writes_cache);
     static_assert(Br * D * 2 + Schedule::kArenaBytes + Br * PStride * 2 + Br * 4 +
                       2 * Bc * kKVCacheNvfp4Groups <=
-                  99 * 1024);
+                  NINFER_MAX_BLOCK_SHARED_BYTES);
     const int kv_head      = ParallelQueries ? blockIdx.x % Geometry::KVHeads : blockIdx.x;
     const int column_begin = ParallelQueries ? (blockIdx.x / Geometry::KVHeads) * TokenTile : 0;
     const int tile_tokens = ParallelQueries ? min(TokenTile, full_width - column_begin) : TokenTile;

@@ -1,4 +1,6 @@
 #pragma once
+
+#include "ops/common/shm_limit.cuh"
 #include "core/device.h"
 #include "ops/common/mma.cuh"
 #include "ops/linear/bf16/bf16_schedule.cuh"
@@ -8,7 +10,7 @@ namespace ninfer::ops::detail {
 
 template <int Bytes, auto Kernel>
 int bf16_prepare_shared() {
-    static_assert(Bytes <= 99 * 1024);
+    static_assert(Bytes <= NINFER_MAX_BLOCK_SHARED_BYTES);
     if constexpr (Bytes > 48 * 1024) {
         static const auto status =
             cudaFuncSetAttribute(Kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, Bytes);

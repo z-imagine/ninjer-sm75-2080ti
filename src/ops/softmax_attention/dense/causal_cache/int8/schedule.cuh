@@ -1,5 +1,7 @@
 #pragma once
 
+#include "ops/common/shm_limit.cuh"
+
 #include "ops/softmax_attention/common/causal_geometry.h"
 
 namespace ninfer::ops::detail {
@@ -42,7 +44,7 @@ struct Int8KvTiledMmaSchedule {
     static constexpr int kStatsBytes      = 2 * QueryTile * 4;
     static constexpr int kSharedBytes = kQBytes + kQScaleBytes + kKBytes + kVBytes + kVStageBytes +
                                         kPBytes + kScaleBytes + kStatsBytes;
-    static_assert(kSharedBytes <= 99 * 1024);
+    static_assert(kSharedBytes <= NINFER_MAX_BLOCK_SHARED_BYTES);
 };
 
 template <int DChunk>

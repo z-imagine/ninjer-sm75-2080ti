@@ -1,5 +1,7 @@
 #pragma once
 
+#include "ops/common/shm_limit.cuh"
+
 #include "ops/softmax_attention/common/causal_geometry.h"
 #include "ops/softmax_attention/common/mxfp8_tiled_plan.h"
 
@@ -38,7 +40,7 @@ struct K8V4KvTiledMmaSchedule {
     static constexpr int kScaleBytes   = KeyTile * (2 + 16);
     static constexpr int kSharedBytes =
         kQBytes + kQScaleBytes + kKBytes + kVBytes + kVStageBytes + kScaleBytes;
-    static_assert(kSharedBytes <= 99 * 1024);
+    static_assert(kSharedBytes <= NINFER_MAX_BLOCK_SHARED_BYTES);
 };
 
 // Inverse rotation consumes the complete normalized D256 row in one CTA.

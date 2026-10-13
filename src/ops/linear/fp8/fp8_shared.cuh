@@ -1,10 +1,12 @@
 #pragma once
+
+#include "ops/common/shm_limit.cuh"
 #include "core/device.h"
 
 namespace ninfer::ops::detail {
 template <int Bytes>
 __device__ __forceinline__ unsigned char* fp8_shared_storage() {
-    static_assert(Bytes > 0 && Bytes <= 99 * 1024);
+    static_assert(Bytes > 0 && Bytes <= NINFER_MAX_BLOCK_SHARED_BYTES);
     if constexpr (Bytes > 48 * 1024) {
         extern __shared__ __align__(16) unsigned char shared_dynamic[];
         return shared_dynamic;
@@ -16,7 +18,7 @@ __device__ __forceinline__ unsigned char* fp8_shared_storage() {
 
 template <int Bytes, auto Kernel, bool Dynamic = false>
 int fp8_prepare_shared() {
-    static_assert(Bytes <= 99 * 1024);
+    static_assert(Bytes <= NINFER_MAX_BLOCK_SHARED_BYTES);
     if constexpr (Bytes > 48 * 1024) {
         static const cudaError_t status =
             cudaFuncSetAttribute(Kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, Bytes);

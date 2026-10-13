@@ -1,5 +1,7 @@
 #pragma once
 
+#include "ops/common/shm_limit.cuh"
+
 #include "ops/common/memory.cuh"
 #include "ops/linear/q8/q8_rowsplit_storage.cuh"
 
@@ -100,7 +102,7 @@ struct Q8A16MmaSchedule {
     static_assert(KLoopUnroll > 0);
     static_assert(ActivationStages == 1 || ActivationStages == 2);
     static_assert(kThreads <= 1024 && MinBlocksPerSm > 0);
-    static_assert(kSharedBytes <= 99 * 1024);
+    static_assert(kSharedBytes <= NINFER_MAX_BLOCK_SHARED_BYTES);
 };
 
 enum class Q8ScaleAccess : std::uint8_t { Direct, Shared };
@@ -148,7 +150,7 @@ struct Q8A16SlicedKMmaSchedule {
     static constexpr int kPartialBytes = KWarps * (BlockTokens / 8) * 32 * 16;
     static constexpr int kSharedBytes =
         kStagingBytes > kPartialBytes ? kStagingBytes : kPartialBytes;
-    static_assert(kSharedBytes <= 99 * 1024);
+    static_assert(kSharedBytes <= NINFER_MAX_BLOCK_SHARED_BYTES);
 };
 
 template <int BlockTokens, int KWarps, int TokenGroups, int Stages, int MinBlocksPerSm,
@@ -177,7 +179,7 @@ struct Q8A16GroupedSlicedKMmaSchedule {
     static constexpr bool kTiledTokens     = TiledTokens;
     static constexpr bool kReadOnlyScales  = ReadOnlyScales;
     static constexpr int kSharedBytes = Stages * (16 * kBlockK + kWarps * kWarpTokens * 64 * 2);
-    static_assert(kThreads <= 1024 && kSharedBytes <= 99 * 1024);
+    static_assert(kThreads <= 1024 && kSharedBytes <= NINFER_MAX_BLOCK_SHARED_BYTES);
 };
 
 } // namespace ninfer::ops::detail
