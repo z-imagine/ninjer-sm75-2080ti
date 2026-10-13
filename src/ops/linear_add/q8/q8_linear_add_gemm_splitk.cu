@@ -101,13 +101,33 @@ void q8_linear_add_medium_splitk_launch(const Tensor& x, const Weight& weight, T
         throw std::invalid_argument("Q8 linear_add medium split-K requires T=49..128");
     }
     if (t <= 64) {
+#if defined(NINFER_SM75)
+// 2080Ti opt-in shared-memory cap is 64 KiB: four K-warps keep this at 36 KiB.
+        dispatch_medium_shape<64, 4, 4, 1>(x, weight, residual_out, stream);
+#else
         dispatch_medium_shape<64, 8, 4, 1>(x, weight, residual_out, stream);
+#endif
     } else if (t == 65) {
+#if defined(NINFER_SM75)
+// 2080Ti opt-in shared-memory cap is 64 KiB: four K-warps keep this at 45 KiB.
+        dispatch_medium_shape<80, 4, 2, 1>(x, weight, residual_out, stream);
+#else
         dispatch_medium_shape<80, 8, 2, 1>(x, weight, residual_out, stream);
+#endif
     } else if (t <= 72) {
+#if defined(NINFER_SM75)
+// 2080Ti opt-in shared-memory cap is 64 KiB: four K-warps keep this at 41 KiB.
+        dispatch_medium_shape<72, 4, 3, 1>(x, weight, residual_out, stream);
+#else
         dispatch_medium_shape<72, 8, 3, 1>(x, weight, residual_out, stream);
+#endif
     } else if (t <= 80) {
+#if defined(NINFER_SM75)
+// 2080Ti opt-in shared-memory cap is 64 KiB: four K-warps keep this at 45 KiB.
+        dispatch_medium_shape<80, 4, 2, 1>(x, weight, residual_out, stream);
+#else
         dispatch_medium_shape<80, 8, 2, 1>(x, weight, residual_out, stream);
+#endif
     } else if (t <= 96) {
         dispatch_medium_shape<96, 4, 6, 1>(x, weight, residual_out, stream);
     } else if (t <= 112) {
@@ -115,9 +135,19 @@ void q8_linear_add_medium_splitk_launch(const Tensor& x, const Weight& weight, T
     } else if (t <= 120) {
         dispatch_medium_shape<120, 4, 5, 1>(x, weight, residual_out, stream);
     } else if (t <= 125) {
+#if defined(NINFER_SM75)
+// 2080Ti opt-in shared-memory cap is 64 KiB: two K-warps keep this at 34 KiB.
+        dispatch_medium_shape<128, 2, 4, 1>(x, weight, residual_out, stream);
+#else
         dispatch_medium_shape<128, 4, 4, 1>(x, weight, residual_out, stream);
+#endif
     } else {
+#if defined(NINFER_SM75)
+// 2080Ti opt-in shared-memory cap is 64 KiB: two K-warps keep this at 34 KiB.
+        dispatch_medium_shape<128, 2, 8, 1>(x, weight, residual_out, stream);
+#else
         dispatch_medium_shape<128, 4, 8, 1>(x, weight, residual_out, stream);
+#endif
     }
     CUDA_CHECK(cudaGetLastError());
 }

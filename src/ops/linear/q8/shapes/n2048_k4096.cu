@@ -14,10 +14,22 @@ using C40 =
     Q8A16SlicedKMmaSchedule<40, 8, 1, 2, Access::Shared, Cache::cg, Cache::cg, Stage::ActiveOnly>;
 using C48 = Q8A16SlicedKMmaSchedule<48, 8, 1, 2, Access::Shared, Cache::ca, Cache::cg,
                                     Stage::RuntimeActive>;
+#if defined(NINFER_SM75)
+// 2080Ti opt-in shared-memory cap is 64 KiB: two K-warps keep this at 33 KiB.
+using C56 =
+    Q8A16SlicedKMmaSchedule<56, 4, 1, 2, Access::Shared, Cache::ca, Cache::cg, Stage::ActiveOnly>;
+#else
 using C56 =
     Q8A16SlicedKMmaSchedule<56, 8, 1, 2, Access::Shared, Cache::ca, Cache::cg, Stage::ActiveOnly>;
+#endif
+#if defined(NINFER_SM75)
+// 2080Ti opt-in shared-memory cap is 64 KiB: two K-warps keep this at 37 KiB.
+using C64 = Q8A16SlicedKMmaSchedule<64, 4, 1, 2, Access::Shared, Cache::ca, Cache::cg,
+                                    Stage::RuntimeActive>;
+#else
 using C64 = Q8A16SlicedKMmaSchedule<64, 8, 1, 2, Access::Shared, Cache::ca, Cache::cg,
                                     Stage::RuntimeActive>;
+#endif
 } // namespace
 
 Q8Launch select_q8_n2048_k4096(std::int32_t tokens) {

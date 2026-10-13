@@ -7,23 +7,57 @@ namespace {
 using Geometry = Q8N2048K16384;
 using Access   = Q8ScaleAccess;
 using Stage    = Q8ActivationStage;
+#if defined(NINFER_SM75)
+// 2080Ti opt-in shared-memory cap is 64 KiB: single stage keeps this at 32 KiB.
+using C8       = Q8A16SlicedKMmaSchedule<8, 16, 1, 1, Access::Shared>;
+#else
 using C8       = Q8A16SlicedKMmaSchedule<8, 16, 2, 1, Access::Shared>;
+#endif
+
 using Wide32   = Q8A16SlicedKMmaSchedule<32, 4, 2, 1, Access::Shared>;
 using Medium16 = Q8A16SlicedKMmaSchedule<16, 8, 2, 1, Access::Shared>;
 using C16 =
     Q8A16SlicedKMmaSchedule<16, 16, 1, 1, Access::Shared, Cache::cg, Cache::cg, Stage::ActiveOnly>;
+#if defined(NINFER_SM75)
+// 2080Ti opt-in shared-memory cap is 64 KiB: four K-warps keep this at 33 KiB.
+using C24 =
+    Q8A16SlicedKMmaSchedule<24, 8, 1, 1, Access::Shared, Cache::cg, Cache::cg, Stage::ActiveOnly>;
+#else
 using C24 =
     Q8A16SlicedKMmaSchedule<24, 16, 1, 1, Access::Shared, Cache::cg, Cache::cg, Stage::ActiveOnly>;
+#endif
+
+#if defined(NINFER_SM75)
+// 2080Ti opt-in shared-memory cap is 64 KiB: four K-warps keep this at 41 KiB.
+using C32 =
+    Q8A16SlicedKMmaSchedule<32, 8, 1, 1, Access::Shared, Cache::cg, Cache::cg, Stage::ActiveOnly>;
+#else
 using C32 =
     Q8A16SlicedKMmaSchedule<32, 16, 1, 1, Access::Shared, Cache::cg, Cache::cg, Stage::ActiveOnly>;
+#endif
+
+#if defined(NINFER_SM75)
+// 2080Ti opt-in shared-memory cap is 64 KiB: four K-warps keep this at 50 KiB.
+using C40 = Q8A16SlicedKMmaSchedule<40, 8, 1, 1, Access::Shared, Cache::cg, Cache::cg,
+                                    Stage::RuntimeActive>;
+#else
 using C40 = Q8A16SlicedKMmaSchedule<40, 16, 1, 1, Access::Shared, Cache::cg, Cache::cg,
                                     Stage::RuntimeActive>;
+#endif
+
 using C48 =
     Q8A16SlicedKMmaSchedule<48, 8, 1, 2, Access::Shared, Cache::cg, Cache::cg, Stage::ActiveOnly>;
 
 void launch_grouped(const Tensor& x, const Weight& weight, Tensor& out, cudaStream_t stream) {
+#if defined(NINFER_SM75)
+// 2080Ti opt-in shared-memory cap is 64 KiB: single stage keeps this at 34 KiB.
+    using Schedule =
+        Q8A16GroupedSlicedKMmaSchedule<128, 2, 4, 1, 1, 0, Cache::cg, Cache::cg, true, false>;
+#else
     using Schedule =
         Q8A16GroupedSlicedKMmaSchedule<128, 2, 4, 2, 1, 0, Cache::cg, Cache::cg, true, false>;
+#endif
+
     launch_q8_a16_grouped_sliced_k_mma<Schedule>(
         q8_linear_operands(x, weight),
         LinearBf16Output{static_cast<__nv_bfloat16*>(out.data), Geometry::kOutputRows},

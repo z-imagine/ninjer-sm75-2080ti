@@ -4,22 +4,54 @@
 
 namespace ninfer::ops::detail {
 namespace {
+#if defined(NINFER_SM75)
+// 2080Ti opt-in shared-memory cap is 64 KiB: single stage keeps this at 36 KiB.
+using S0 =
+    Bf16KTailSchedule<Bf16ScheduleInstance<Bf16A16SlicedKMmaSchedule<16, 8, 6, 128, 1>, 4304>>;
+#else
 using S0 =
     Bf16KTailSchedule<Bf16ScheduleInstance<Bf16A16SlicedKMmaSchedule<16, 8, 6, 128, 2>, 4304>>;
+#endif
 using S1 =
     Bf16KTailSchedule<Bf16ScheduleInstance<Bf16A16SlicedKMmaSchedule<16, 16, 8, 64, 2>, 4304>>;
+#if defined(NINFER_SM75)
+// 2080Ti opt-in shared-memory cap is 64 KiB: single stage keeps this at 40 KiB.
+using S2 =
+    Bf16KTailSchedule<Bf16ScheduleInstance<Bf16A16SlicedKMmaSchedule<32, 16, 8, 64, 1>, 4304>>;
+#else
 using S2 =
     Bf16KTailSchedule<Bf16ScheduleInstance<Bf16A16SlicedKMmaSchedule<32, 16, 8, 64, 2>, 4304>>;
+#endif
+#if defined(NINFER_SM75)
+// 2080Ti opt-in shared-memory cap is 64 KiB: two stages keep this at 48/64 KiB.
+using S3 = Bf16KTailSchedule<
+    Bf16ScheduleInstance<Bf16A16MmaSchedule<32, 16, 256, 16, 8, 2, 1, Cache::cg, Cache::cg,
+                                            Bf16MmaFragmentPipeline::PingPong,
+                                            Bf16MmaRaster::TokenFast, Bf16MmaSwizzle::Xor64, 1>,
+                         4304>>;
+#else
 using S3 = Bf16KTailSchedule<
     Bf16ScheduleInstance<Bf16A16MmaSchedule<32, 16, 256, 16, 8, 3, 1, Cache::cg, Cache::cg,
                                             Bf16MmaFragmentPipeline::PingPong,
                                             Bf16MmaRaster::TokenFast, Bf16MmaSwizzle::Xor64, 1>,
                          4304>>;
+#endif
+
+#if defined(NINFER_SM75)
+// 2080Ti opt-in shared-memory cap is 64 KiB: two stages keep this at 48/64 KiB.
+using S4 = Bf16KTailSchedule<
+    Bf16ScheduleInstance<Bf16A16MmaSchedule<32, 32, 256, 16, 8, 2, 1, Cache::cg, Cache::cg,
+                                            Bf16MmaFragmentPipeline::PingPong,
+                                            Bf16MmaRaster::TokenFast, Bf16MmaSwizzle::Xor64, 1>,
+                         4304>>;
+#else
 using S4 = Bf16KTailSchedule<
     Bf16ScheduleInstance<Bf16A16MmaSchedule<32, 32, 256, 16, 8, 3, 1, Cache::cg, Cache::cg,
                                             Bf16MmaFragmentPipeline::PingPong,
                                             Bf16MmaRaster::TokenFast, Bf16MmaSwizzle::Xor64, 1>,
                          4304>>;
+#endif
+
 using S5 = Bf16KTailSchedule<Bf16ScheduleInstance<
     Bf16A16TmaMmaSchedule<32, 32, 64, 16, 8, 4, 1, Bf16MmaRaster::TokenFast, 1, 1>, 4304>>;
 using S6 = Bf16KTailSchedule<

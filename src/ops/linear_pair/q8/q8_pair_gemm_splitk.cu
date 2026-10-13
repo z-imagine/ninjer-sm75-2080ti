@@ -222,8 +222,14 @@ void q8_pair_splitk_medium_launch(Q8PairScheduleId schedule, const Tensor& x,
         break;
     case Q8PairScheduleId::DualSplitKMediumC256:
         if (x.ne[1] <= 256) {
+#if defined(NINFER_SM75)
+// 2080Ti opt-in shared-memory cap is 64 KiB: 128-token slices (launched twice by the wrapper) keep this at 34 KiB.
+            launch_medium<128, 2, 4, 1>(x, first_weight, second_weight, first_out, second_out,
+                                        stream);
+#else
             launch_medium<256, 2, 8, 1>(x, first_weight, second_weight, first_out, second_out,
                                         stream);
+#endif
             CUDA_CHECK(cudaGetLastError());
             return;
         }

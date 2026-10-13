@@ -6,8 +6,9 @@ namespace ninfer::ops::detail {
 Bf16Launch select_bf16_n256_k5120(std::int32_t tokens) {
 #if defined(NINFER_SM75)
     if (tokens <= 76)
+        // 2080Ti opt-in shared-memory cap is 64 KiB: single stage keeps this at 48 KiB.
         return launch_bf16_sliced_k_mma<
-            Bf16ScheduleInstance<Bf16A16SlicedKMmaSchedule<16, 8, 16>, 5120>>;
+            Bf16ScheduleInstance<Bf16A16SlicedKMmaSchedule<16, 8, 16, 64, 1>, 5120>>;
     if (tokens <= 160)
         return launch_bf16_sliced_k_mma<
             Bf16ScheduleInstance<Bf16A16SlicedKMmaSchedule<16, 16, 8>, 5120>>;

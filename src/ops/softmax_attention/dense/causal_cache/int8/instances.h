@@ -17,6 +17,11 @@ struct Int8KvGroupedInstance {
     using Merge                     = Int8KvMergeSchedule<G::QHeads == 24 ? 256 : 64>;
 };
 
+#if defined(NINFER_SM75)
+// 2080Ti opt-in shared-memory cap is 64 KiB: 32-row key tiles keep this at 54 KiB.
+using Int8KvTiledInstance = Int8KvTiledMmaSchedule<64, 32, 128>;
+#else
 using Int8KvTiledInstance = Int8KvTiledMmaSchedule<64, 64, 128>;
+#endif
 
 } // namespace ninfer::ops::detail

@@ -3,9 +3,16 @@
 
 namespace ninfer::ops::detail {
 
+#if defined(NINFER_SM75)
+// 2080Ti opt-in shared-memory cap is 64 KiB: two stages keep this at 64 KiB.
+using Bf16A16MmaR32T32K256S3 =
+    Bf16A16MmaSchedule<32, 32, 256, 16, 8, 2, 1, Cache::cg, Cache::cg,
+                       Bf16MmaFragmentPipeline::PingPong, Bf16MmaRaster::TokenFast>;
+#else
 using Bf16A16MmaR32T32K256S3 =
     Bf16A16MmaSchedule<32, 32, 256, 16, 8, 3, 1, Cache::cg, Cache::cg,
                        Bf16MmaFragmentPipeline::PingPong, Bf16MmaRaster::TokenFast>;
+#endif
 using Bf16A16MmaR32T32K192S2 =
     Bf16A16MmaSchedule<32, 32, 192, 16, 8, 2, 2, Cache::cg, Cache::ca,
                        Bf16MmaFragmentPipeline::PingPong, Bf16MmaRaster::TokenFast>;

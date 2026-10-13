@@ -8,12 +8,25 @@ using S0 = Bf16ScheduleInstance<
                         Bf16PhaseOrder::Sequential, 1, 1, 4, 2>,
     6144>;
 using S1 = Bf16ScheduleInstance<Bf16A16SlicedKMmaSchedule<16, 16, 8, 64, 2>, 6144>;
+#if defined(NINFER_SM75)
+// 2080Ti opt-in shared-memory cap is 64 KiB: single stage keeps this at 40 KiB.
+using S2 = Bf16ScheduleInstance<Bf16A16SlicedKMmaSchedule<32, 8, 8, 64, 1>, 6144>;
+#else
 using S2 = Bf16ScheduleInstance<Bf16A16SlicedKMmaSchedule<32, 8, 8, 64, 2>, 6144>;
+#endif
 using S3 = Bf16ScheduleInstance<Bf16A16SlicedKMmaSchedule<32, 16, 4, 64, 2>, 6144>;
+#if defined(NINFER_SM75)
+// 2080Ti opt-in shared-memory cap is 64 KiB: two stages keep this at 64 KiB.
+using S4 = Bf16ScheduleInstance<
+    Bf16A16MmaSchedule<32, 32, 256, 16, 8, 2, 1, Cache::cg, Cache::cg,
+                       Bf16MmaFragmentPipeline::PingPong, Bf16MmaRaster::TokenFast>,
+    6144>;
+#else
 using S4 = Bf16ScheduleInstance<
     Bf16A16MmaSchedule<32, 32, 256, 16, 8, 3, 1, Cache::cg, Cache::cg,
                        Bf16MmaFragmentPipeline::PingPong, Bf16MmaRaster::TokenFast>,
     6144>;
+#endif
 using S5 = Bf16ScheduleInstance<Bf16A16TmaMmaSchedule<64, 32, 128, 32, 16, 2, 2>, 6144>;
 using S6 = Bf16ScheduleInstance<Bf16A16TmaMmaSchedule<64, 32, 128, 16, 16, 2, 2>, 6144>;
 using S7 = Bf16ScheduleInstance<

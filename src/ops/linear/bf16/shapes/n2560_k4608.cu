@@ -12,8 +12,14 @@ using S1 = Bf16ScheduleInstance<
     Bf16A16SimtSchedule<1, 1, 1, 8, 4, 2, Bf16SimtActivationAccess::WarpPacked,
                         Bf16WeightCache::Default, Bf16PhaseOrder::Sequential, 1, 4, 1, 2, 2>,
     4608>;
+#if defined(NINFER_SM75)
+// 2080Ti opt-in shared-memory cap is 64 KiB: reduced stages keep these at 48/36 KiB.
+using S2 = Bf16ScheduleInstance<Bf16A16SlicedKMmaSchedule<16, 8, 4, 128, 2>, 4608>;
+using S3 = Bf16ScheduleInstance<Bf16A16SlicedKMmaSchedule<64, 8, 4, 64, 1>, 4608>;
+#else
 using S2 = Bf16ScheduleInstance<Bf16A16SlicedKMmaSchedule<16, 8, 4, 128, 3>, 4608>;
 using S3 = Bf16ScheduleInstance<Bf16A16SlicedKMmaSchedule<64, 8, 4, 64, 2>, 4608>;
+#endif
 using S4 = Bf16RowTailSchedule<
     Bf16ScheduleInstance<Bf16A16TmaMmaSchedule<48, 32, 192, 16, 16, 3, 1>, 4608>>;
 using S5 = Bf16ScheduleInstance<

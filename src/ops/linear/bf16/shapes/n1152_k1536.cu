@@ -7,6 +7,17 @@ namespace {
 using S0 = Bf16ScheduleInstance<Bf16A16SlicedKMmaSchedule<16, 8, 4, 64, 2>, 1536>;
 using S1 = Bf16ScheduleInstance<Bf16A16SlicedKMmaSchedule<32, 8, 4, 64, 2>, 1536>;
 using S2 = Bf16ScheduleInstance<Bf16A16SlicedKMmaSchedule<32, 8, 3, 128, 2>, 1536>;
+#if defined(NINFER_SM75)
+// 2080Ti opt-in shared-memory cap is 64 KiB: two stages keep these at 48/64 KiB.
+using S3 = Bf16ScheduleInstance<
+    Bf16A16MmaSchedule<32, 16, 256, 16, 8, 2, 1, Cache::cg, Cache::cg,
+                       Bf16MmaFragmentPipeline::PingPong, Bf16MmaRaster::TokenFast>,
+    1536>;
+using S4 = Bf16ScheduleInstance<
+    Bf16A16MmaSchedule<32, 32, 256, 16, 16, 2, 1, Cache::cg, Cache::cg,
+                       Bf16MmaFragmentPipeline::PingPong, Bf16MmaRaster::TokenFast>,
+    1536>;
+#else
 using S3 = Bf16ScheduleInstance<
     Bf16A16MmaSchedule<32, 16, 256, 16, 8, 3, 1, Cache::cg, Cache::cg,
                        Bf16MmaFragmentPipeline::PingPong, Bf16MmaRaster::TokenFast>,
@@ -15,6 +26,7 @@ using S4 = Bf16ScheduleInstance<
     Bf16A16MmaSchedule<32, 32, 256, 16, 16, 3, 1, Cache::cg, Cache::cg,
                        Bf16MmaFragmentPipeline::PingPong, Bf16MmaRaster::TokenFast>,
     1536>;
+#endif
 using S5 = Bf16ScheduleInstance<Bf16A16TmaMmaSchedule<64, 32, 64, 16, 16, 3, 2>, 1536>;
 using S6 = Bf16ScheduleInstance<Bf16A16TmaMmaSchedule<64, 64, 64, 32, 16, 3, 2>, 1536>;
 using S7 = Bf16ScheduleInstance<Bf16A16TmaMmaSchedule<64, 128, 64, 32, 32, 3, 1>, 1536>;
