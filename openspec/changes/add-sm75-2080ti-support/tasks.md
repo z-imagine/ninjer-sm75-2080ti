@@ -3,7 +3,7 @@
 ## 1. 构建解锁（P0）
 
 - [x] 1.1 修改 `CMakeLists.txt:3-12`：架构允许列表 {75, 86, 120a}，sm75 定义全局宏 `NINFER_SM75`，其他架构报错列出允许集；验证：x99 上 `-DCMAKE_CUDA_ARCHITECTURES=75` 配置成功、`-DCMAKE_CUDA_ARCHITECTURES=80` 配置失败且报错列出 {75, 86, 120a}
-- [ ] 1.2 验证基线不变：x99 上以 `sm_120a` 配置并全量构建成功（该 GPU 上只验证编译，不运行）；验证：120a 构建 0 错误
+- [x] 1.2 验证基线不变：x99 上以 `sm_120a` 配置并全量构建成功（该 GPU 上只验证编译，不运行）；验证：120a 构建 0 错误。**build-120a（2026-10-13，x99，CUDA 12.8）：全量构建 0 错误（BUILD120A_EXIT=0，100% 目标）；CMakeCache CMAKE_CUDA_ARCHITECTURES=120a；cuobjdump 抽查 SASS 为 sm_120a。注：x99 的 CUDA 12.8 为残缺安装（include 缺 105 个头，含 nvtx3、cuda_profiler_api.h），构建层用 `-I/usr/local/cuda-12.4/include` 补两个稳定 host 头（12.8 头优先），系统文件未动。**
 - [x] 1.3 实测定局带宽之争：x99 独立构建运行 `tools/hbm_bandwidth_probe.cu`；验证：记录实测 GB/s（616 或 448），写入 x99 笔记，供 P5 调优优先级参考（不影响本变更 spec）。**实测（2080Ti-22G，CUDA 12.4）：持续写 586.0 GB/s（cudaMemsetAsync）= 标称 616 GB/s 的 95.1%；D2D 拷贝 528.4 GB/s（cudaMemcpyAsync）。x99 底稿 448 不成立，P5 以 616 为口径基准。**
 
 ## 2. 回退层（P1，4 个共享头）
@@ -25,12 +25,12 @@
 ## 4. 单元测试套件全绿（P3，L3）
 
 - [ ] 4.1 `ctest --test-dir build --output-on-failure`（158 文件，fp8/nvfp4 相关跳过）；验证：全绿
-- [ ] 4.2 GDN 回放逐位一致测试（`test_gdn_replay_records.cpp`）；验证：绿——红则停在此闸门定位 F_fp 链条（预案见 design.md Risks），不进下一组
-- [ ] 4.3 补 sm75 专项测试：q8 GEMM 27B 形状（含 n14336_k5120、n5120_k17408 类）、int8 prefill 注意力 vs bf16 参考、GDN 两阶段 vs 参考；验证：专项全绿
+- [x] 4.2 GDN 回放逐位一致测试（`test_gdn_replay_records.cpp`）；验证：绿——红则停在此闸门定位 F_fp 链条（预案见 design.md Risks），不进下一组。**ctest11（2026-10-13，x99）：ninfer_gated_delta_net_replay_record_test Passed 6.84 s；F_fp 链条在 sm75 上逐位一致，闸门放行。**
+- [x] 4.3 补 sm75 专项测试：q8 GEMM 27B 形状（含 n14336_k5120、n5120_k17408 类）、int8 prefill 注意力 vs bf16 参考、GDN 两阶段 vs 参考；验证：专项全绿。**核查结论：三项均已由现有套件在 sm75 覆盖且绿（ctest11，x99，2026-10-13），无需新增：(a) `tests/ops/linear/test_q8_a16.cpp` kGeometries 已含 27B 生产形状 {14336,5120}、{5120,17408}、{34816,5120}、{16384,2560}、{248320,5120} → ninfer_linear_q8_a16_test Passed 33.71 s；(b) causal_cache sm75 kStorages={BFloat16,Int8Group64}，run_storage_cases 对两存储同跑 run_small_prefill_cases + 量化 causal 用例、同一 oracle 参考 → ninfer_softmax_attention_test Passed 246.13 s（bf16 103.8 s + int8 138.9 s）；(c) ninfer_gated_delta_net_test（chunked 两阶段 normalized/raw + batch_update vs FP64 gdn_ref，含 27B 几何）Passed 74.99 s。**
 
 ## 5. 试部署（独立树 + 独立端口，fork 全程不动）
 
-- [ ] 5.1 工件升级（Mac）：`python3 tools/upgrade_ninfer_v2_to_v3.py qwen3_8_27b_v2.ninfer qwen3_8_27b_v3.ninfer`；验证：脚本 0 退出、v2 文件字节不变、v3 生成（~18.2 GB）
+- [x] 5.1 工件升级（Mac）：`python3 tools/upgrade_ninfer_v2_to_v3.py qwen3_8_27b_v2.ninfer qwen3_8_27b_v3.ninfer`；验证：脚本 0 退出、v2 文件字节不变、v3 生成（~18.2 GB）。**2026-10-13 于 x99 执行（v2 工件在 x99，免 17G 往返传输；脚本纯标准库 Python）：输入 `…/models/qwen38-27b/ninfer-2080ti/qwen3_8_27b_v2.ninfer`（1124 objects，weights_id=groupwise-int，即 fork 服务当前加载的同权重文件）→ 输出 `qwen3_8_27b_v3_sm75.ninfer` 18,210,749,936 B ≈ 18.2 GB；UPGRADE_EXIT=0（"weights preserved, qwen3_8.jinja installed"）；v2 SHA256 复核不变；上游 `tools.artifact.inspect` 解析通过（v3、qwen3.8-27b、1124 objects、text+vision+mtp）。命名 `*_sm75` 以免覆盖同目录既有的 20G `qwen3_8_27b_v3.ninfer`（1190 objects、不同量化布局，本变更不用）。**
 - [ ] 5.2 rsync sm75 源树到 x99 独立目录（与 fork 树隔离）并构建；验证：独立目录构建 0 错误
 - [ ] 5.3 独立端口起 serve（18081，`--kv-dtype int8 --max-concurrency 1`）并跑 HTTP 契约 smoke；验证：`python3 -m tools.smoke.serve_contract --base-url http://127.0.0.1:18081` 全过，且 fork 服务端口仍正常响应
 
