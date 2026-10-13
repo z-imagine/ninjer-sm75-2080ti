@@ -50,10 +50,18 @@ std::size_t linear_swiglu_workspace_capacity_bytes(QType qtype, std::int32_t gat
             gate_up_rows, gate_up_rows / 2, input_rows, input_rows, min_tokens, max_tokens);
     }
     if (qtype == QType::NVFP4 && gate_up_rows == 34816 && input_rows == 5120) {
+                                                                               #if defined(NINFER_SM75)
+                                                                               throw std::runtime_error("linear_swiglu: NVFP4 compute is not supported on this architecture (sm75)");
+                                                                               #else
         return detail::nvfp4_linear_swiglu_workspace_capacity_bytes(policy, min_tokens, max_tokens);
+                                                                               #endif // NINFER_SM75
     }
     if (qtype == QType::FP8_E4M3FN_ROW_BF16 && gate_up_rows == 34816 && input_rows == 5120) {
+                                                                                             #if defined(NINFER_SM75)
+                                                                                             throw std::runtime_error("linear_swiglu: FP8 compute is not supported on this architecture (sm75)");
+                                                                                             #else
         return detail::fp8_linear_swiglu_workspace_capacity_bytes(policy, min_tokens, max_tokens);
+                                                                                             #endif // NINFER_SM75
     }
     throw std::invalid_argument("linear_swiglu workspace: unsupported weight format");
 }
@@ -109,15 +117,23 @@ void linear_swiglu(const Tensor& x, const Weight& gate_up_weight, Tensor& out, L
     }
 
     if (fp8_weight) {
+                     #if defined(NINFER_SM75)
+                     throw std::runtime_error("linear_swiglu: FP8 compute is not supported on this architecture (sm75)");
+                     #else
         (void)detail::validate_fp8_weight(gate_up_weight, "fp8 linear_swiglu");
         detail::fp8_linear_swiglu_dispatch(x, gate_up_weight, out, policy, ws, stream);
         return;
+                     #endif // NINFER_SM75
     }
 
     if (nvfp4_weight) {
+                       #if defined(NINFER_SM75)
+                       throw std::runtime_error("linear_swiglu: NVFP4 compute is not supported on this architecture (sm75)");
+                       #else
         (void)detail::validate_nvfp4_weight(gate_up_weight, "nvfp4 linear_swiglu");
         detail::nvfp4_linear_swiglu_dispatch(x, gate_up_weight, out, policy, ws, stream);
         return;
+                       #endif // NINFER_SM75
     }
 
     if (!aligned_to(gate_up_weight.qdata, 16) ||

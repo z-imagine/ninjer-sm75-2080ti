@@ -106,6 +106,10 @@ void dispatch_single_parent(const Tensor& x, const Weight& weight, Tensor& q, Te
     }
 
     if (weight.qtype == QType::NVFP4) {
+#if defined(NINFER_SM75)
+        throw std::runtime_error(
+            "attn_input_proj: NVFP4 compute is not supported on this architecture (sm75)");
+#else
         constexpr std::int32_t kHidden = 5120;
         constexpr std::int32_t kQRows  = 6144;
         constexpr std::int32_t kKvRows = 1024;
@@ -123,9 +127,14 @@ void dispatch_single_parent(const Tensor& x, const Weight& weight, Tensor& q, Te
         }
         detail::nvfp4_attn_input_dispatch(x, weight, q, gate, k, v, policy, workspace, stream);
         return;
+#endif // NINFER_SM75
     }
 
     if (weight.qtype == QType::FP8_E4M3FN_ROW_BF16) {
+#if defined(NINFER_SM75)
+        throw std::runtime_error(
+            "attn_input_proj: FP8 compute is not supported on this architecture (sm75)");
+#else
         constexpr std::int32_t kHidden = 5120;
         constexpr std::int32_t kQRows  = 6144;
         constexpr std::int32_t kKvRows = 1024;
@@ -143,6 +152,7 @@ void dispatch_single_parent(const Tensor& x, const Weight& weight, Tensor& q, Te
         }
         detail::fp8_attn_input_dispatch(x, weight, q, gate, k, v, policy, workspace, stream);
         return;
+#endif // NINFER_SM75
     }
 
     constexpr std::int32_t kHidden = 2048;
@@ -178,12 +188,20 @@ std::size_t attn_input_proj_workspace_capacity_bytes(QType parent_qtype, std::in
         }
         return 0;
     case QType::NVFP4:
+#if defined(NINFER_SM75)
+        throw std::runtime_error(
+            "attn_input_proj workspace: NVFP4 is not supported on this architecture (sm75)");
+#endif
         if (parent_rows != detail::Nvfp4N14336K5120::kOutputRows ||
             input_rows != detail::Nvfp4N14336K5120::kInputRows) {
             throw std::invalid_argument("attn_input_proj workspace: unsupported NVFP4 profile");
         }
         return detail::nvfp4_attn_input_workspace_capacity_bytes(policy, min_tokens, max_tokens);
     case QType::FP8_E4M3FN_ROW_BF16:
+#if defined(NINFER_SM75)
+        throw std::runtime_error(
+            "attn_input_proj workspace: FP8 is not supported on this architecture (sm75)");
+#endif
         if (parent_rows != detail::Fp8N14336K5120::kOutputRows ||
             input_rows != detail::Fp8N14336K5120::kInputRows) {
             throw std::invalid_argument("attn_input_proj workspace: unsupported FP8 profile");

@@ -294,6 +294,9 @@ void dispatch_single_parent(const Tensor& x, const Weight& weight, Tensor& qkv, 
     if (cols <= 0) { throw std::invalid_argument("gdn_input_proj: T must be positive"); }
 
     if (weight.qtype == QType::NVFP4) {
+                                       #if defined(NINFER_SM75)
+                                       throw std::runtime_error("gdn_input_proj: NVFP4 compute is not supported on this architecture (sm75)");
+                                       #else
         constexpr std::int32_t kHidden  = 5120;
         constexpr std::int32_t kQkvRows = 10240;
         constexpr std::int32_t kZRows   = 6144;
@@ -308,9 +311,13 @@ void dispatch_single_parent(const Tensor& x, const Weight& weight, Tensor& qkv, 
         }
         detail::nvfp4_gdn_input_dispatch(x, weight, qkv, z, policy, workspace, stream);
         return;
+                                       #endif // NINFER_SM75
     }
 
     if (weight.qtype == QType::FP8_E4M3FN_ROW_BF16) {
+                                                     #if defined(NINFER_SM75)
+                                                     throw std::runtime_error("gdn_input_proj: FP8 compute is not supported on this architecture (sm75)");
+                                                     #else
         constexpr std::int32_t kHidden  = 5120;
         constexpr std::int32_t kQkvRows = 10240;
         constexpr std::int32_t kZRows   = 6144;
@@ -325,6 +332,7 @@ void dispatch_single_parent(const Tensor& x, const Weight& weight, Tensor& qkv, 
         }
         detail::fp8_gdn_input_dispatch(x, weight, qkv, z, policy, workspace, stream);
         return;
+                                                     #endif // NINFER_SM75
     }
 
     constexpr std::int32_t kHidden  = 2048;
@@ -416,6 +424,9 @@ void dispatch_single_parent_snapshot(const Tensor& x, const Weight& weight,
     validate_policy(policy);
 
     if (weight.qtype == QType::NVFP4) {
+                                       #if defined(NINFER_SM75)
+                                       throw std::runtime_error("gdn_input_proj: NVFP4 compute is not supported on this architecture (sm75)");
+                                       #else
         constexpr std::int32_t kHidden     = 5120;
         constexpr std::int32_t kQueryRows  = 2048;
         constexpr std::int32_t kKeyRows    = 2048;
@@ -458,9 +469,13 @@ void dispatch_single_parent_snapshot(const Tensor& x, const Weight& weight,
                                             initial_state_slots, snapshot_base_slots, query, key,
                                             value, z, policy, workspace, stream);
         return;
+                                       #endif // NINFER_SM75
     }
 
     if (weight.qtype == QType::FP8_E4M3FN_ROW_BF16) {
+                                                     #if defined(NINFER_SM75)
+                                                     throw std::runtime_error("gdn_input_proj: FP8 compute is not supported on this architecture (sm75)");
+                                                     #else
         constexpr std::int32_t kHidden     = 5120;
         constexpr std::int32_t kQueryRows  = 2048;
         constexpr std::int32_t kKeyRows    = 2048;
@@ -501,6 +516,7 @@ void dispatch_single_parent_snapshot(const Tensor& x, const Weight& weight,
                                           initial_state_slots, snapshot_base_slots, query, key,
                                           value, z, policy, workspace, stream);
         return;
+                                                     #endif // NINFER_SM75
     }
 
     constexpr std::int32_t kHidden    = 2048;
@@ -562,6 +578,9 @@ void dispatch_single_parent_record(const Tensor& x, const Weight& weight, const 
     validate_policy(policy);
 
     if (weight.qtype == QType::NVFP4) {
+                                       #if defined(NINFER_SM75)
+                                       throw std::runtime_error("gdn_input_proj: NVFP4 compute is not supported on this architecture (sm75)");
+                                       #else
         constexpr std::int32_t kHidden     = 5120;
         constexpr std::int32_t kQueryRows  = 2048;
         constexpr std::int32_t kKeyRows    = 2048;
@@ -613,9 +632,13 @@ void dispatch_single_parent_record(const Tensor& x, const Weight& weight, const 
         detail::nvfp4_gdn_record_post_launch(conv_record, conv_weight, conv_states, valid_columns,
                                              initial_state_slots, query, key, value, stream);
         return;
+                                       #endif // NINFER_SM75
     }
 
     if (weight.qtype == QType::FP8_E4M3FN_ROW_BF16) {
+                                                     #if defined(NINFER_SM75)
+                                                     throw std::runtime_error("gdn_input_proj: FP8 compute is not supported on this architecture (sm75)");
+                                                     #else
         constexpr std::int32_t kHidden     = 5120;
         constexpr std::int32_t kQueryRows  = 2048;
         constexpr std::int32_t kKeyRows    = 2048;
@@ -650,6 +673,7 @@ void dispatch_single_parent_record(const Tensor& x, const Weight& weight, const 
                                         initial_state_slots, conv_record, query, key, value, z,
                                         policy, workspace, stream);
         return;
+                                                     #endif // NINFER_SM75
     }
 
     constexpr std::int32_t kHidden    = 2048;
@@ -722,18 +746,26 @@ std::size_t gdn_input_proj_workspace_capacity_bytes(QType parent_qtype, std::int
         throw std::invalid_argument("gdn_input_proj workspace: invalid token interval");
     }
     if (parent_qtype == QType::NVFP4) {
+                                       #if defined(NINFER_SM75)
+                                       throw std::runtime_error("gdn_input_proj: NVFP4 compute is not supported on this architecture (sm75)");
+                                       #else
         if (parent_rows != detail::Nvfp4N16384K5120::kOutputRows ||
             input_rows != detail::Nvfp4N16384K5120::kInputRows) {
             throw std::invalid_argument("gdn_input_proj workspace: unsupported NVFP4 profile");
         }
         return detail::nvfp4_gdn_input_workspace_capacity_bytes(policy, min_tokens, max_tokens);
+                                       #endif // NINFER_SM75
     }
     if (parent_qtype == QType::FP8_E4M3FN_ROW_BF16) {
+                                                     #if defined(NINFER_SM75)
+                                                     throw std::runtime_error("gdn_input_proj: FP8 compute is not supported on this architecture (sm75)");
+                                                     #else
         if (parent_rows != detail::Fp8N16384K5120::kOutputRows ||
             input_rows != detail::Fp8N16384K5120::kInputRows) {
             throw std::invalid_argument("gdn_input_proj workspace: unsupported FP8 profile");
         }
         return detail::fp8_gdn_input_workspace_capacity_bytes(policy, min_tokens, max_tokens);
+                                                     #endif // NINFER_SM75
     }
     if (parent_qtype == QType::Q8_G32_FP16 && parent_rows == 12288 && input_rows == 2048) {
         (void)detail::q8_gdn_input_resolve_plan(
@@ -802,11 +834,21 @@ std::size_t gdn_input_proj_conv_snapshot_workspace_capacity_bytes(
     std::int32_t batch_size, std::int32_t min_width, std::int32_t max_width) {
     validate_policy(policy);
     require_snapshot_capacity_domain(batch_size, min_width, max_width);
+#if defined(NINFER_SM75)
+    if (parent_qtype == QType::NVFP4) {
+        throw std::runtime_error(
+            "gdn_input_proj: NVFP4 compute is not supported on this architecture (sm75)");
+    }
+#endif
     if (parent_qtype == QType::FP8_E4M3FN_ROW_BF16 &&
         parent_rows == detail::Fp8N16384K5120::kOutputRows &&
         input_rows == detail::Fp8N16384K5120::kInputRows) {
+                                                           #if defined(NINFER_SM75)
+                                                           throw std::runtime_error("gdn_input_proj: FP8 compute is not supported on this architecture (sm75)");
+                                                           #else
         return detail::fp8_gdn_snapshot_workspace_capacity_bytes(policy, batch_size, min_width,
                                                                  max_width);
+                                                           #endif // NINFER_SM75
     }
     if (parent_qtype != QType::NVFP4 || parent_rows != detail::Nvfp4N16384K5120::kOutputRows ||
         input_rows != detail::Nvfp4N16384K5120::kInputRows) {
@@ -851,11 +893,21 @@ std::size_t gdn_input_proj_conv_record_workspace_capacity_bytes(
     std::int32_t batch_size, std::int32_t min_width, std::int32_t max_width) {
     validate_policy(policy);
     require_record_capacity_domain(batch_size, min_width, max_width);
+#if defined(NINFER_SM75)
+    if (parent_qtype == QType::NVFP4) {
+        throw std::runtime_error(
+            "gdn_input_proj: NVFP4 compute is not supported on this architecture (sm75)");
+    }
+#endif
     if (parent_qtype == QType::FP8_E4M3FN_ROW_BF16 &&
         parent_rows == detail::Fp8N16384K5120::kOutputRows &&
         input_rows == detail::Fp8N16384K5120::kInputRows) {
+                                                           #if defined(NINFER_SM75)
+                                                           throw std::runtime_error("gdn_input_proj: FP8 compute is not supported on this architecture (sm75)");
+                                                           #else
         return detail::fp8_gdn_record_workspace_capacity_bytes(policy, batch_size, min_width,
                                                                max_width);
+                                                           #endif // NINFER_SM75
     }
     if (parent_qtype != QType::NVFP4 || parent_rows != detail::Nvfp4N16384K5120::kOutputRows ||
         input_rows != detail::Nvfp4N16384K5120::kInputRows) {
