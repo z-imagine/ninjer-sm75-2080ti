@@ -2758,9 +2758,19 @@ int run_softmax_attention_causal_cache_tests(std::optional<KvCacheStorage> selec
     DeviceContext device;
     const auto execution = device.execution_view();
     int failures         = 0;
-    for (const auto storage :
-         {KvCacheStorage::BFloat16, KvCacheStorage::Int8Group64, KvCacheStorage::Fp8E4M3Row256,
-          KvCacheStorage::Nvfp4Group16, KvCacheStorage::Fp8KeyNvfp4Value}) {
+#if defined(NINFER_SM75)
+    // FP8 / NVFP4 KV cache storage is not supported on sm_75; dispatchers throw
+    // explicit errors, so run only the bf16 and int8 variants there.
+    static const std::array<KvCacheStorage, 2> kStorages{KvCacheStorage::BFloat16,
+                                                         KvCacheStorage::Int8Group64};
+#else
+    static const std::array<KvCacheStorage, 5> kStorages{KvCacheStorage::BFloat16,
+                                                         KvCacheStorage::Int8Group64,
+                                                         KvCacheStorage::Fp8E4M3Row256,
+                                                         KvCacheStorage::Nvfp4Group16,
+                                                         KvCacheStorage::Fp8KeyNvfp4Value};
+#endif
+    for (const auto storage : kStorages) {
         if (selected && storage != *selected) continue;
         const auto start = std::chrono::steady_clock::now();
         std::cout << "RUN causal_softmax_attention " << cache_name(storage) << std::endl;
