@@ -38,6 +38,13 @@ __device__ __forceinline__ float exp2_approx_ftz(float x) {
 
 __device__ __forceinline__ float exp_approx_ftz(float x) { return exp2_approx_ftz(x * kLog2E); }
 
+#if defined(NINFER_SM75)
+// cvt.rn.bf16x2.f32 is sm80+; the RNE intrinsic produces bit-identical results on sm75.
+__device__ __forceinline__ std::uint32_t pack_bf16x2(float lo, float hi) {
+    const __nv_bfloat162 packed = __floats2bfloat162_rn(lo, hi);
+    return load_vec<std::uint32_t>(&packed);
+}
+#else
 __device__ __forceinline__ std::uint32_t pack_bf16x2(float lo, float hi) {
     std::uint32_t out;
     const std::uint32_t lo_bits = __float_as_uint(lo);
@@ -45,6 +52,7 @@ __device__ __forceinline__ std::uint32_t pack_bf16x2(float lo, float hi) {
     asm volatile("cvt.rn.bf16x2.f32 %0, %1, %2;\n" : "=r"(out) : "r"(hi_bits), "r"(lo_bits));
     return out;
 }
+#endif // NINFER_SM75
 
 // Exact BF16 expansion for consumers that need FP32 operand bits, including TF32 MMA.
 __device__ __forceinline__ void unpack_bf16x2_to_fp32_bits(unsigned packed, unsigned& low,
