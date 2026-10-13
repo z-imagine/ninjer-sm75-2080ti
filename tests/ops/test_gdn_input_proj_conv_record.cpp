@@ -451,8 +451,12 @@ int main() {
     int failures = 0;
     failures += run_q4_q5();
     failures += run_q8();
+#if !defined(NINFER_SM75)
+    // NVFP4 / FP8 compute is not supported on sm_75; dispatchers throw explicit
+    // errors, so run these variants only where the formats exist.
     failures += run_nvfp4();
     failures += run_fp8();
+#endif
     std::cout << (failures == 0 ? "OK" : "FAIL") << " gdn_input_proj_conv_record\n";
     return failures == 0 ? 0 : 1;
 }

@@ -8,7 +8,15 @@ template <class G, int Tokens>
 struct Int8KvGroupedInstance {
     static_assert(Tokens > 0 && Tokens * G::GroupSize <= 64);
     static constexpr int kRowTiles  = (Tokens * G::GroupSize + 15) / 16;
+#if defined(NINFER_SM75)
+    // The 2080Ti opt-in shared-memory cap is 64 KiB: the 64-row key-tile arena
+    // alone is 4*64*256 = 64 KiB of dynamic memory, and with the kernel's static
+    // shared memory it exceeds the cap (cudaFuncSetAttribute rejects it). The
+    // 32-row key tile (32-KiB arena) fits and yields identical results.
+    static constexpr bool kWideKeys = false;
+#else
     static constexpr bool kWideKeys = G::GroupSize == 8 && kRowTiles >= 3;
+#endif
     using Schedule                  = Int8KvGroupedMmaSchedule<Tokens,
                                               kWideKeys        ? 4 * kRowTiles
                                                                : kRowTiles <= 2 ? 8

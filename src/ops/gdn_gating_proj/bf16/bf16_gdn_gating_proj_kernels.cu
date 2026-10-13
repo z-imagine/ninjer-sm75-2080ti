@@ -257,23 +257,6 @@ void require_shape35(const Weight& w, const char* name) {
     }
 }
 
-template <class Geometry, int SplitK>
-constexpr std::int32_t cooperative_resident_ctas_per_sm() noexcept {
-    static_assert(SplitK > 1);
-    if constexpr (std::is_same_v<Geometry, Bf16Gdn27Geometry>) {
-        static_assert(SplitK == 8 || SplitK == 4 || SplitK == 2);
-        // Qualified on the sm_120a build: BN128 split-8 uses 256 threads and split-4/2 use
-        // 512 threads; registers and 40-KiB shared memory admit two resident CTAs per SM.
-        return 2;
-    } else {
-        static_assert(std::is_same_v<Geometry, Bf16Gdn35Geometry>);
-        static_assert(SplitK == 32 || SplitK == 16 || SplitK == 8 || SplitK == 4 || SplitK == 2);
-        // BN64 split-32 is register-limited to two resident CTAs per SM. The remaining
-        // specializations admit four. These are kernel facts, not a device-wide SM-count policy.
-        return SplitK == 32 ? 2 : 4;
-    }
-}
-
 template <class Geometry, int SplitK, int Warps = kBf16GdnWarps, bool NormalizeInput = false,
           int NormTokenCapacity = 0>
 bool launch_bf16_prefill_mma(Bf16GdnGatingTokenVariant variant, const Tensor& x,
@@ -357,10 +340,36 @@ bool launch_bf16_prefill_mma(Bf16GdnGatingTokenVariant variant, const Tensor& x,
     } else {
         constexpr std::int64_t kCtasPerTokenTile =
             static_cast<std::int64_t>(Geometry::kHeads / kBf16GdnBlockM) * SplitK;
-        constexpr std::int32_t kResidentCtasPerSm =
-            cooperative_resident_ctas_per_sm<Geometry, SplitK>();
+        // A cooperative grid may not exceed the CTAs the device can host
+        // concurrently. Resident capacity depends on the device's shared-memory
+        // opt-in cap and the kernel's register usage, so ask the driver for the
+        // occupancy of the actual instantiation instead of an architecture
+        // constant: on sm_75 the 64-KiB cap admits fewer resident CTAs for
+        // these 40-KiB tiles than the sm_120a qualification did (too-large
+        // cooperative grids fail with cudaErrorCooperativeLaunchTooLarge).
+        // The attribute set is idempotent; take the conservative occupancy
+        // across both token variants, since one launch may use either.
+        const std::int32_t resident_ctas_per_sm = [] {
+            const auto full_kernel = bf16_gdn_gating_proj_gemm_mma_kernel<
+                Geometry, SplitK, true, Warps, NormalizeInput, NormTokenCapacity>;
+            const auto pred_kernel = bf16_gdn_gating_proj_gemm_mma_kernel<
+                Geometry, SplitK, false, Warps, NormalizeInput, NormTokenCapacity>;
+            const cudaError_t attr_full = cudaFuncSetAttribute(
+                full_kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, kSmemBytes);
+            const cudaError_t attr_pred = cudaFuncSetAttribute(
+                pred_kernel, cudaFuncSetAttributeMaxDynamicSharedMemorySize, kSmemBytes);
+            if (attr_full != cudaSuccess || attr_pred != cudaSuccess) { return 1; }
+            int full_ctas = 0;
+            int pred_ctas = 0;
+            const cudaError_t occ_full = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+                &full_ctas, full_kernel, block.x, kSmemBytes);
+            const cudaError_t occ_pred = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+                &pred_ctas, pred_kernel, block.x, kSmemBytes);
+            if (occ_full != cudaSuccess || occ_pred != cudaSuccess) { return 1; }
+            return std::max(1, std::min(full_ctas, pred_ctas));
+        }();
         const std::int64_t resident_ctas =
-            static_cast<std::int64_t>(multiprocessor_count) * kResidentCtasPerSm;
+            static_cast<std::int64_t>(multiprocessor_count) * resident_ctas_per_sm;
         const std::int64_t max_token_tiles = resident_ctas / kCtasPerTokenTile;
         if (max_token_tiles < 1) { return false; }
 

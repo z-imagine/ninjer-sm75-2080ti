@@ -343,7 +343,16 @@ int chunk_value_tile(int value_heads, int multiprocessor_count) {
         int tile, cost;
     };
 
+#if defined(NINFER_SM75)
+    // The 2080Ti opt-in shared-memory cap is 64 KiB: the DV=64 stripe needs
+    // ~71 KiB of dynamic shared memory (two 256-aligned stages of
+    // RecurrenceShared<64> plus snapshot/delta arrays), so it cannot launch on
+    // sm_75. The measured SM120a per-wave costs are reused for the remaining
+    // candidates.
+    for (const auto [tile, cost] : {Choice{32, 20}, Choice{16, 13}}) {
+#else
     for (const auto [tile, cost] : {Choice{64, 34}, Choice{32, 20}, Choice{16, 13}}) {
+#endif
         const auto blocks = static_cast<std::int64_t>(value_heads) * (kStateDim / tile);
         const auto waves  = (blocks + multiprocessor_count - 1) / multiprocessor_count;
         const auto work   = waves * cost;
