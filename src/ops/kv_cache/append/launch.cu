@@ -186,6 +186,15 @@ void kv_cache_append_launch(const Tensor& k, const Tensor& v, const Tensor& posi
 void kv_cache_append_batch_launch(const Tensor& k, const Tensor& v, const Tensor& positions,
                                   const Tensor& valid_columns, const Tensor& table_rows,
                                   PagedKVBatchLayerView cache, cudaStream_t stream) {
+#if defined(NINFER_SM75)
+    if (cache.storage == KvCacheStorage::Fp8KeyNvfp4Value ||
+        cache.storage == KvCacheStorage::Nvfp4Group16) {
+        throw std::runtime_error(
+            "kv_cache_append_batch: NVFP4/K8V4 KV cache is not supported on this architecture "
+            "(sm75)");
+    }
+#endif
+#if !defined(NINFER_SM75)
     if (cache.storage == KvCacheStorage::Fp8KeyNvfp4Value) {
         kv_cache_append_k8v4_batch_launch(k, v, positions, valid_columns, table_rows, cache,
                                           stream);
@@ -196,6 +205,7 @@ void kv_cache_append_batch_launch(const Tensor& k, const Tensor& v, const Tensor
                                            stream);
         return;
     }
+#endif
     const auto launch = [&]<bool Masked>() {
         const PagedKVBatchMetadata<Masked> metadata{
             .tables = static_cast<const std::int32_t*>(cache.block_tables.data),

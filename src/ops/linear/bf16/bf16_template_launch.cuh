@@ -7,7 +7,9 @@
 #include "ops/linear/bf16/bf16_a16_simt.cuh"
 #include "ops/linear/bf16/bf16_a16_mma.cuh"
 #include "ops/linear/bf16/bf16_a16_sliced_k_mma.cuh"
+#if !defined(NINFER_SM75)
 #include "ops/linear/bf16/bf16_a16_tma_mma.cuh"
+#endif // !NINFER_SM75
 
 namespace ninfer::ops::detail {
 

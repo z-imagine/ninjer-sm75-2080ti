@@ -2,15 +2,23 @@
 add_library(ninfer_ops STATIC)
 ninfer_internal_includes(ninfer_ops)
 ninfer_cuda_archive(ninfer_ops)
-target_link_libraries(ninfer_ops PUBLIC ninfer_core PRIVATE ninfer_nvfp4_non_rdc)
 
-# Warp-specialized SM120 NVFP4 kernels use setmaxnreg to transfer registers from
-# producer to consumer warpgroups. RDC makes ptxas discard that contract. These
-# self-contained kernels therefore use a non-RDC archive and host launchers.
-add_library(ninfer_nvfp4_non_rdc STATIC)
-ninfer_internal_includes(ninfer_nvfp4_non_rdc)
-ninfer_cuda_non_rdc_archive(ninfer_nvfp4_non_rdc)
-target_link_libraries(ninfer_nvfp4_non_rdc PRIVATE ninfer_core CUDA::cudart CUDA::cuda_driver)
+# SM75 (2080Ti) has no TMA and no NVFP4/FP8 tensor cores: the fp8/nvfp4 source
+# sets are excluded per family below, and there is no non-RDC NVFP4 archive.
+if(CMAKE_CUDA_ARCHITECTURES STREQUAL "75")
+  target_link_libraries(ninfer_ops PUBLIC ninfer_core)
+else()
+  target_link_libraries(ninfer_ops PUBLIC ninfer_core PRIVATE ninfer_nvfp4_non_rdc)
+
+  # Warp-specialized SM120 NVFP4 kernels use setmaxnreg to transfer registers
+  # from producer to consumer warpgroups. RDC makes ptxas discard that
+  # contract. These self-contained kernels therefore use a non-RDC archive
+  # and host launchers.
+  add_library(ninfer_nvfp4_non_rdc STATIC)
+  ninfer_internal_includes(ninfer_nvfp4_non_rdc)
+  ninfer_cuda_non_rdc_archive(ninfer_nvfp4_non_rdc)
+  target_link_libraries(ninfer_nvfp4_non_rdc PRIVATE ninfer_core CUDA::cudart CUDA::cuda_driver)
+endif()
 
 include(basic_sources.cmake)
 include("${CMAKE_CURRENT_LIST_DIR}/attn_input_proj/sources.cmake")

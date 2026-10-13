@@ -93,11 +93,21 @@ void dispatch_linear(const Tensor& x, const Weight& w, Tensor& out, LinearPolicy
         detail::bf16_dispatch(x, w, out, policy, stream);
         return;
     case QType::NVFP4:
+#if defined(NINFER_SM75)
+        throw std::runtime_error(
+            "linear: NVFP4 compute is not supported on this architecture (sm75)");
+#else
         detail::nvfp4_dispatch(x, w, out, policy, workspace, stream);
         return;
+#endif
     case QType::FP8_E4M3FN_ROW_BF16:
+#if defined(NINFER_SM75)
+        throw std::runtime_error(
+            "linear: FP8 compute is not supported on this architecture (sm75)");
+#else
         detail::fp8_dispatch(x, w, out, policy, workspace, stream);
         return;
+#endif
     case QType::FP32:
     case QType::INT32:
         break;
@@ -137,11 +147,21 @@ std::size_t linear_workspace_capacity_bytes(QType qtype, std::int32_t output_row
         (void)detail::select_bf16_launch(output_rows, input_rows, max_tokens, policy);
         return 0;
     case QType::NVFP4:
+#if defined(NINFER_SM75)
+        throw std::runtime_error(
+            "linear workspace: NVFP4 is not supported on this architecture (sm75)");
+#else
         return detail::nvfp4_linear_workspace_capacity_bytes(output_rows, input_rows, policy,
                                                              min_tokens, max_tokens);
+#endif
     case QType::FP8_E4M3FN_ROW_BF16:
+#if defined(NINFER_SM75)
+        throw std::runtime_error(
+            "linear workspace: FP8 is not supported on this architecture (sm75)");
+#else
         return detail::fp8_linear_workspace_capacity_bytes(output_rows, input_rows, policy,
                                                            min_tokens, max_tokens);
+#endif
     case QType::FP32:
     case QType::INT32:
         break;

@@ -266,6 +266,15 @@ std::size_t causal_softmax_attention_workspace_capacity_bytes(
     CausalAttentionExecutionEnvelope envelope, std::int32_t batch_size, std::int32_t min_width,
     std::int32_t max_width, DeviceExecutionView execution) {
     require_causal_geometry(geometry, "causal_softmax_attention workspace");
+#if defined(NINFER_SM75)
+    if (cache_storage == KvCacheStorage::Fp8E4M3Row256 ||
+        cache_storage == KvCacheStorage::Nvfp4Group16 ||
+        cache_storage == KvCacheStorage::Fp8KeyNvfp4Value) {
+        throw std::runtime_error(
+            "causal_softmax_attention: FP8/NVFP4 KV cache is not supported on this architecture "
+            "(sm75)");
+    }
+#endif
     const std::int32_t q_heads = geometry.query_heads;
     bool supported_dtype       = true;
     try {
@@ -284,20 +293,28 @@ std::size_t causal_softmax_attention_workspace_capacity_bytes(
         return detail::bf16_kv_workspace_bytes(q_heads, batch_size, min_width, max_width, envelope,
                                                execution.multiprocessor_count);
 
+#if !defined(NINFER_SM75)
     if (cache_storage == KvCacheStorage::Fp8E4M3Row256)
         return detail::fp8_kv_workspace_bytes(q_heads, batch_size, min_width, max_width, envelope,
                                               execution.multiprocessor_count);
+#endif
 
     if (cache_storage == KvCacheStorage::Int8Group64)
         return detail::int8_kv_workspace_bytes(q_heads, batch_size, min_width, max_width, envelope,
                                                execution.multiprocessor_count);
 
+#if defined(NINFER_SM75)
+    throw std::runtime_error(
+        "causal_softmax_attention workspace: unsupported KV cache storage on this architecture "
+        "(sm75)");
+#else
     if (cache_storage == KvCacheStorage::Nvfp4Group16)
         return detail::nvfp4_kv_workspace_bytes(q_heads, batch_size, min_width, max_width, envelope,
                                                 execution.multiprocessor_count);
 
     return detail::k8v4_kv_workspace_bytes(q_heads, batch_size, min_width, max_width, envelope,
                                            execution.multiprocessor_count);
+#endif
 }
 
 void causal_softmax_attention(const Tensor& q, const Tensor& k, const Tensor& v,
@@ -310,6 +327,15 @@ void causal_softmax_attention(const Tensor& q, const Tensor& k, const Tensor& v,
     if (execution.multiprocessor_count <= 0) {
         throw std::invalid_argument(std::string(op) + ": SM count must be positive");
     }
+#if defined(NINFER_SM75)
+    if (cache.storage == KvCacheStorage::Fp8E4M3Row256 ||
+        cache.storage == KvCacheStorage::Nvfp4Group16 ||
+        cache.storage == KvCacheStorage::Fp8KeyNvfp4Value) {
+        throw std::runtime_error(
+            "causal_softmax_attention: FP8/NVFP4 KV cache is not supported on this architecture "
+            "(sm75)");
+    }
+#endif
     validate_batched_attention_tensors(q, positions, valid_columns, kv_table_rows, out, cache,
                                        geometry, envelope, scale, op);
     if (k.dtype != DType::BF16 || v.dtype != DType::BF16) {
@@ -329,11 +355,13 @@ void causal_softmax_attention(const Tensor& q, const Tensor& k, const Tensor& v,
         return;
     }
 
+#if !defined(NINFER_SM75)
     if (cache.storage == KvCacheStorage::Fp8E4M3Row256) {
         detail::fp8_kv_append_attention(q, k, v, positions, valid_columns, kv_table_rows, scale,
                                         cache, envelope, workspace, out, execution);
         return;
     }
+#endif
 
     if (cache.storage == KvCacheStorage::Int8Group64) {
         detail::int8_kv_append_attention(q, k, v, positions, valid_columns, kv_table_rows, scale,
@@ -341,6 +369,10 @@ void causal_softmax_attention(const Tensor& q, const Tensor& k, const Tensor& v,
         return;
     }
 
+#if defined(NINFER_SM75)
+    throw std::runtime_error(
+        "causal_softmax_attention: unsupported KV cache storage on this architecture (sm75)");
+#else
     if (cache.storage == KvCacheStorage::Nvfp4Group16) {
         detail::nvfp4_kv_append_attention(q, k, v, positions, valid_columns, kv_table_rows, scale,
                                           cache, envelope, workspace, out, execution);
@@ -349,6 +381,7 @@ void causal_softmax_attention(const Tensor& q, const Tensor& k, const Tensor& v,
 
     detail::k8v4_kv_append_attention(q, k, v, positions, valid_columns, kv_table_rows, scale, cache,
                                      envelope, workspace, out, execution);
+#endif
 }
 
 void causal_softmax_attention_cached(const Tensor& q, const Tensor& positions,
@@ -361,6 +394,15 @@ void causal_softmax_attention_cached(const Tensor& q, const Tensor& positions,
     if (execution.multiprocessor_count <= 0) {
         throw std::invalid_argument(std::string(op) + ": SM count must be positive");
     }
+#if defined(NINFER_SM75)
+    if (cache.storage == KvCacheStorage::Fp8E4M3Row256 ||
+        cache.storage == KvCacheStorage::Nvfp4Group16 ||
+        cache.storage == KvCacheStorage::Fp8KeyNvfp4Value) {
+        throw std::runtime_error(
+            "causal_softmax_attention: FP8/NVFP4 KV cache is not supported on this architecture "
+            "(sm75)");
+    }
+#endif
     validate_attention_tensors(q, positions, out, geometry, cache, envelope, scale, op);
 
     if (cache.storage == KvCacheStorage::BFloat16) {
@@ -369,11 +411,13 @@ void causal_softmax_attention_cached(const Tensor& q, const Tensor& positions,
         return;
     }
 
+#if !defined(NINFER_SM75)
     if (cache.storage == KvCacheStorage::Fp8E4M3Row256) {
         detail::fp8_kv_cached_attention(q, positions, scale, cache, envelope, workspace, out,
                                         execution);
         return;
     }
+#endif
 
     if (cache.storage == KvCacheStorage::Int8Group64) {
         detail::int8_kv_cached_attention(q, positions, scale, cache, envelope, workspace, out,
@@ -381,6 +425,10 @@ void causal_softmax_attention_cached(const Tensor& q, const Tensor& positions,
         return;
     }
 
+#if defined(NINFER_SM75)
+    throw std::runtime_error(
+        "causal_softmax_attention: unsupported KV cache storage on this architecture (sm75)");
+#else
     if (cache.storage == KvCacheStorage::Nvfp4Group16) {
         detail::nvfp4_kv_cached_attention(q, positions, scale, cache, envelope, workspace, out,
                                           execution);
@@ -389,6 +437,7 @@ void causal_softmax_attention_cached(const Tensor& q, const Tensor& positions,
 
     detail::k8v4_kv_cached_attention(q, positions, scale, cache, envelope, workspace, out,
                                      execution);
+#endif
 }
 
 } // namespace ninfer::ops

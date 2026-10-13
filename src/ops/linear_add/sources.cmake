@@ -3,15 +3,17 @@ target_sources(ninfer_ops PRIVATE
   "${CMAKE_CURRENT_LIST_DIR}/bf16/bf16_linear_add_gemm_mma.cu"
   "${CMAKE_CURRENT_LIST_DIR}/bf16/bf16_linear_add_small_t.cu"
   "${CMAKE_CURRENT_LIST_DIR}/bf16/bf16_linear_add_plan.cpp"
-  "${CMAKE_CURRENT_LIST_DIR}/nvfp4/nvfp4_linear_add_decode.cu"
-  "${CMAKE_CURRENT_LIST_DIR}/nvfp4/nvfp4_linear_add_small_t.cu"
-  "${CMAKE_CURRENT_LIST_DIR}/nvfp4/nvfp4_linear_add_a16.cu"
-  "${CMAKE_CURRENT_LIST_DIR}/nvfp4/nvfp4_linear_add_a4.cu"
-  "${CMAKE_CURRENT_LIST_DIR}/nvfp4/nvfp4_linear_add_plan.cpp"
-  "${CMAKE_CURRENT_LIST_DIR}/fp8/fp8_linear_add_decode.cu"
-  "${CMAKE_CURRENT_LIST_DIR}/fp8/fp8_linear_add_a16.cu"
-  "${CMAKE_CURRENT_LIST_DIR}/fp8/fp8_linear_add_a8.cu"
-  "${CMAKE_CURRENT_LIST_DIR}/fp8/fp8_linear_add_plan.cpp"
+  # SM75 has no FP8/NVFP4 tensor cores; excluded below.
+  $<$<NOT:$<STREQUAL:${CMAKE_CUDA_ARCHITECTURES},75>>:
+    "${CMAKE_CURRENT_LIST_DIR}/nvfp4/nvfp4_linear_add_decode.cu"
+    "${CMAKE_CURRENT_LIST_DIR}/nvfp4/nvfp4_linear_add_small_t.cu"
+    "${CMAKE_CURRENT_LIST_DIR}/nvfp4/nvfp4_linear_add_a16.cu"
+    "${CMAKE_CURRENT_LIST_DIR}/nvfp4/nvfp4_linear_add_a4.cu"
+    "${CMAKE_CURRENT_LIST_DIR}/nvfp4/nvfp4_linear_add_plan.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/fp8/fp8_linear_add_decode.cu"
+    "${CMAKE_CURRENT_LIST_DIR}/fp8/fp8_linear_add_a16.cu"
+    "${CMAKE_CURRENT_LIST_DIR}/fp8/fp8_linear_add_a8.cu"
+    "${CMAKE_CURRENT_LIST_DIR}/fp8/fp8_linear_add_plan.cpp">
   "${CMAKE_CURRENT_LIST_DIR}/q4/q4_linear_add.cu"
   "${CMAKE_CURRENT_LIST_DIR}/q5/q5_linear_add_gemm_mma.cu"
   "${CMAKE_CURRENT_LIST_DIR}/q5/q5_linear_add_sliced_k_mma.cu"
@@ -26,6 +28,8 @@ target_sources(ninfer_ops PRIVATE
   "${CMAKE_CURRENT_LIST_DIR}/../wrapper/linear_add.cpp"
 )
 
-target_sources(ninfer_nvfp4_non_rdc PRIVATE
-  "${CMAKE_CURRENT_LIST_DIR}/nvfp4/nvfp4_linear_add_a4_tma.cu"
-)
+if(NOT CMAKE_CUDA_ARCHITECTURES STREQUAL "75")
+  target_sources(ninfer_nvfp4_non_rdc PRIVATE
+    "${CMAKE_CURRENT_LIST_DIR}/nvfp4/nvfp4_linear_add_a4_tma.cu"
+  )
+endif()
