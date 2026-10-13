@@ -67,16 +67,21 @@ ninfer_add_op_test(ninfer_context_kv_materialize_test
   SOURCES "${CMAKE_CURRENT_LIST_DIR}/test_context_kv_materialize.cpp"
   LIBRARIES ninfer_ops)
 
-add_test(NAME ninfer_kv_cache_append_nvfp4_test
-  COMMAND ninfer_kv_cache_append_test --nvfp4-only)
+# NVFP4 / K8V4 KV-cache append is not supported on sm_75 (no NVFP4 tensor
+# cores, no cuda_fp4.h in CUDA 12.4); the dispatchers throw explicit errors.
+# Register the format-specific variants only where the format exists.
+if(NOT CMAKE_CUDA_ARCHITECTURES STREQUAL "75")
+  add_test(NAME ninfer_kv_cache_append_nvfp4_test
+    COMMAND ninfer_kv_cache_append_test --nvfp4-only)
 
-add_test(NAME ninfer_kv_cache_append_k8v4_test
-  COMMAND ninfer_kv_cache_append_test --k8v4-only)
+  add_test(NAME ninfer_kv_cache_append_k8v4_test
+    COMMAND ninfer_kv_cache_append_test --k8v4-only)
 
-set_tests_properties(
-  ninfer_kv_cache_append_nvfp4_test
-  ninfer_kv_cache_append_k8v4_test
-  PROPERTIES SKIP_RETURN_CODE 77)
+  set_tests_properties(
+    ninfer_kv_cache_append_nvfp4_test
+    ninfer_kv_cache_append_k8v4_test
+    PROPERTIES SKIP_RETURN_CODE 77)
+endif()
 
 ninfer_add_op_test(ninfer_prepare_masked_block_test
   SOURCES "${CMAKE_CURRENT_LIST_DIR}/test_prepare_masked_block.cpp"
