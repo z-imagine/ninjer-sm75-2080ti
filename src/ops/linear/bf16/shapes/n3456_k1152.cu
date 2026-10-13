@@ -19,6 +19,18 @@ using S6 = Bf16ScheduleInstance<
 } // namespace
 
 Bf16Launch select_bf16_n3456_k1152(std::int32_t tokens) {
+#if defined(NINFER_SM75)
+    if (tokens > 131072 || tokens % 4 != 0)
+        throw std::invalid_argument("bf16 linear: P must be a multiple of 4 in [4,131072]");
+    if (tokens <= 4) return launch_bf16_sliced_k_mma<S0>;
+    if (tokens <= 16) return launch_bf16_mma<S1>;
+    if (tokens <= 96) return launch_bf16_mma<S1>;
+    if (tokens <= 128) return launch_bf16_mma<S1>;
+    if (tokens <= 256) return launch_bf16_mma<S1>;
+    if (tokens <= 512) return launch_bf16_mma<S1>;
+    if (tokens <= 1024) return launch_bf16_mma<S1>;
+    return launch_bf16_mma<S1>;
+#else
     if (tokens > 131072 || tokens % 4 != 0)
         throw std::invalid_argument("bf16 linear: P must be a multiple of 4 in [4,131072]");
     if (tokens <= 4) return launch_bf16_sliced_k_mma<S0>;
@@ -29,5 +41,8 @@ Bf16Launch select_bf16_n3456_k1152(std::int32_t tokens) {
     if (tokens <= 512) return launch_bf16_tma_mma<S5>;
     if (tokens <= 1024) return launch_bf16_tma_mma<S6>;
     return launch_bf16_tma_mma<S4>;
+
+#endif // NINFER_SM75
 }
+
 } // namespace ninfer::ops::detail

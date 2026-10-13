@@ -27,6 +27,18 @@ using S9 = Bf16ScheduleInstance<
 } // namespace
 
 Bf16Launch select_bf16_n2560_k2560(std::int32_t tokens) {
+#if defined(NINFER_SM75)
+    if (tokens <= 1) return launch_bf16_gemv<S0>;
+    if (tokens <= 8) return launch_bf16_sliced_k_mma<S1>;
+    if (tokens <= 32) return launch_bf16_sliced_k_mma<S2>;
+    if (tokens <= 48) return launch_bf16_sliced_k_mma<S3>;
+    if (tokens <= 64) return launch_bf16_mma<S4>;
+    if (tokens <= 96) return launch_bf16_mma<S6>;
+    if (tokens <= 128) return launch_bf16_mma<S6>;
+    if (tokens <= 512) return launch_bf16_mma<S6>;
+    if (tokens <= 2048) return launch_bf16_mma<S6>;
+    return launch_bf16_mma<S6>;
+#else
     if (tokens <= 1) return launch_bf16_gemv<S0>;
     if (tokens <= 8) return launch_bf16_sliced_k_mma<S1>;
     if (tokens <= 32) return launch_bf16_sliced_k_mma<S2>;
@@ -37,5 +49,8 @@ Bf16Launch select_bf16_n2560_k2560(std::int32_t tokens) {
     if (tokens <= 512) return launch_bf16_tma_mma<S7>;
     if (tokens <= 2048) return launch_bf16_tma_mma<S8>;
     return launch_bf16_tma_mma<S9>;
+
+#endif // NINFER_SM75
 }
+
 } // namespace ninfer::ops::detail
