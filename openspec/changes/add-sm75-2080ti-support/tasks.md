@@ -31,7 +31,7 @@
 ## 5. 试部署（独立树 + 独立端口，fork 全程不动）
 
 - [x] 5.1 工件升级（Mac）：`python3 tools/upgrade_ninfer_v2_to_v3.py qwen3_8_27b_v2.ninfer qwen3_8_27b_v3.ninfer`；验证：脚本 0 退出、v2 文件字节不变、v3 生成（~18.2 GB）。**2026-10-13 于 x99 执行（v2 工件在 x99，免 17G 往返传输；脚本纯标准库 Python）：输入 `…/models/qwen38-27b/ninfer-2080ti/qwen3_8_27b_v2.ninfer`（1124 objects，weights_id=groupwise-int，即 fork 服务当前加载的同权重文件）→ 输出 `qwen3_8_27b_v3_sm75.ninfer` 18,210,749,936 B ≈ 18.2 GB；UPGRADE_EXIT=0（"weights preserved, qwen3_8.jinja installed"）；v2 SHA256 复核不变；上游 `tools.artifact.inspect` 解析通过（v3、qwen3.8-27b、1124 objects、text+vision+mtp）。命名 `*_sm75` 以免覆盖同目录既有的 20G `qwen3_8_27b_v3.ninfer`（1190 objects、不同量化布局，本变更不用）。**
-- [ ] 5.2 rsync sm75 源树到 x99 独立目录（与 fork 树隔离）并构建；验证：独立目录构建 0 错误
+- [x] 5.2 rsync sm75 源树到 x99 独立目录（与 fork 树隔离）并构建；验证：独立目录构建 0 错误。**独立树即 x99 `/media/samuel/ext_sdd2t/AiProjects/ninfer-sm75`（与 fork 的 docker 构建上下文/镜像完全隔离，fork 容器只挂 `…/models/qwen38-27b/ninfer-2080ti`）：整树 rsync 自 Mac HEAD（0638887a，含本条 docs），build12 全量构建 158/158 目标 0 错误（BUILD12_EXIT=0）。**
 - [ ] 5.3 独立端口起 serve（18081，`--kv-dtype int8 --max-concurrency 1`）并跑 HTTP 契约 smoke；验证：`python3 -m tools.smoke.serve_contract --base-url http://127.0.0.1:18081` 全过，且 fork 服务端口仍正常响应
 
 ## 6. 27B 模型验证（L4 七步）
