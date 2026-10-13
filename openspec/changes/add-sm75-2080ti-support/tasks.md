@@ -24,7 +24,7 @@
 
 ## 4. 单元测试套件全绿（P3，L3）
 
-- [ ] 4.1 `ctest --test-dir build --output-on-failure`（158 文件，fp8/nvfp4 相关跳过）；验证：全绿
+- [x] 4.1 `ctest --test-dir build --output-on-failure`（158 文件，fp8/nvfp4 相关跳过）；验证：全绿。**ctest12（2026-10-14，x99，fork 服务已停、21.8 GB 空闲）：`100% tests passed, 0 tests failed out of 131`，总 1554.38 s；13 个 qwen3_5 real 测试按设计跳过；#119 gdn_replay_fold Passed 14.91 s（ctest11 的 OOM 为环境问题——fork 占 19 GB 显存）。**
 - [x] 4.2 GDN 回放逐位一致测试（`test_gdn_replay_records.cpp`）；验证：绿——红则停在此闸门定位 F_fp 链条（预案见 design.md Risks），不进下一组。**ctest11（2026-10-13，x99）：ninfer_gated_delta_net_replay_record_test Passed 6.84 s；F_fp 链条在 sm75 上逐位一致，闸门放行。**
 - [x] 4.3 补 sm75 专项测试：q8 GEMM 27B 形状（含 n14336_k5120、n5120_k17408 类）、int8 prefill 注意力 vs bf16 参考、GDN 两阶段 vs 参考；验证：专项全绿。**核查结论：三项均已由现有套件在 sm75 覆盖且绿（ctest11，x99，2026-10-13），无需新增：(a) `tests/ops/linear/test_q8_a16.cpp` kGeometries 已含 27B 生产形状 {14336,5120}、{5120,17408}、{34816,5120}、{16384,2560}、{248320,5120} → ninfer_linear_q8_a16_test Passed 33.71 s；(b) causal_cache sm75 kStorages={BFloat16,Int8Group64}，run_storage_cases 对两存储同跑 run_small_prefill_cases + 量化 causal 用例、同一 oracle 参考 → ninfer_softmax_attention_test Passed 246.13 s（bf16 103.8 s + int8 138.9 s）；(c) ninfer_gated_delta_net_test（chunked 两阶段 normalized/raw + batch_update vs FP64 gdn_ref，含 27B 几何）Passed 74.99 s。**
 
