@@ -1,0 +1,45 @@
+services:
+  ninfer:
+    build:
+      context: ..
+      dockerfile: deploy/docker/Dockerfile.sm75
+    image: ninfer-sm75:2080ti
+    container_name: ninfer-27b-sm75
+    # Serves qwen3_8_27b_v3_sm75.ninfer; model id distinct from the fork's qwen3.8-27b.
+    # Same external port 15026 as the fork service (ninfer-27b-gdnfix): only one
+    # of the two may be up at a time.
+    command:
+      - ninfer-serve
+      - /models/qwen3_8_27b_v3_sm75.ninfer
+      - --model-id
+      - qwen3.8-27b-sm75
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8080"
+      - --kv-dtype
+      - int8
+      - --kv-capacity
+      - auto
+      - --max-context
+      - "65536"
+      - --max-concurrency
+      - "1"
+    ports:
+      - "15026:8080"
+    volumes:
+      - /media/samuel/ext_sdd2t/AiProjects/models/qwen38-27b/ninfer-2080ti:/models:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:8080/v1/models"]
+      interval: 15s
+      timeout: 5s
+      retries: 40
+      start_period: 90s
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
