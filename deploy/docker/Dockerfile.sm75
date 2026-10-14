@@ -59,7 +59,7 @@ RUN apt-get update \
         libavutil58 \
         libcurl4t64 \
         libswscale7 \
-        ocl-icd-opencl \
+        ocl-icd-libopencl1 \
     && rm -rf /var/lib/apt/lists/*
 
 RUN --mount=type=bind,from=cuda-repo,target=/cuda-repo,ro \
