@@ -37,7 +37,7 @@
 ## 6. 27B 模型验证（L4 七步）
 
 - [x] 6.1 ① 权重加载：试部署实例启动；验证：日志四段（绑定→引擎就绪含加载摘要→预热→服务就绪）、无 OOM。**2026-10-14 x99 `/tmp/serve18081.log` 四段齐：`starting engine`（绑定）→ `weights ready | 16.2 GiB` + `engine ready | qwen3.8-27b | total 43.4 s`（加载摘要）→ `warmup complete | 1.6 s`（预热）→ `listening on http://127.0.0.1:18081`（服务就绪）；无 OOM，稳态 free 1.77 GiB（KV 65,536 tokens int8 + vision media cache 1.00 GiB）。**
-- [ ] 6.2 ② 单 token decode：`ninfer <v3> --prompt <参照> --max-new 1 --greedy --kv-dtype int8`；验证：token 与 fork x99 参照一致
+- [x] 6.2 ② 单 token decode：`ninfer <v3> --prompt <参照> --max-new 1 --greedy --kv-dtype int8`；验证：token 与 fork x99 参照一致。**2026-10-14 x99：我方 `--max-new 1 --greedy --kv-dtype int8`（v3_sm75 工件，prompt 57 tokens）→ `generated ids 760`。fork 参照（用户手动起 `ninfer-27b-gdnfix`，v2 工件，int8 KV，thinking 默认开）：`/v1/chat/completions`、单 user 消息同 prompt、temperature 0、max_tokens 1 → `reasoning_content: "The"`、finish length、prompt_tokens 57（与我方 57 一致）；用与 fork v2 工件字节一致的 tokenizer 解码 = token 760，与我方 760 逐 token 一致。权重 / generation_config / 单消息模板渲染此前已证字节级一致。**
 - [ ] 6.3 ③ prefill 路径：`--max-context 4096` + 长参照 prompt；验证：token 与参照一致
 - [x] 6.4 ④ prefill/decode 一致性：同 prompt 两路径对比；验证：token 序列一致。**2026-10-14 x99：同 3552-token prompt（`prompt_prefill.txt`）两条 prefill 路径（默认 chunk vs `--prefill-chunk 128`），均 `--max-new 64 --greedy --kv-dtype int8 --max-context 4096` → `generated ids` 40 tokens 逐 token 完全一致（`1596 1144 4087 … 248046`，finish stop-token），两路输出均为 `Elena Voss`。**
 - [x] 6.5 ⑤ 投机解码：加 `--spec mtp --draft-tokens 3`；验证：输出与 ④ 逐 token 一致，接受率报告正常。**2026-10-14 x99：同 ④ 条件 + `--spec mtp --draft-tokens 3` → 输出 40-token ids 与 ④ 逐 token 一致；MTP 统计：draft window 3、drafted 45、accepted 26、acceptance rate 57.8%、acceptance length 2.73 tok/round、按位置接受 11/8/7，报告正常。**
