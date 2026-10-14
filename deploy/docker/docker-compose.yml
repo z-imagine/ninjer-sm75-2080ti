@@ -4,6 +4,11 @@ services:
       # context is the repo root so COPY . . gets the full tree
       context: ../..
       dockerfile: deploy/docker/Dockerfile.sm75
+      # CUDA 12.4.131 offline deb repo, passed as a named build context
+      # (BuildKit on this host fails to resolve absolute host paths in
+      # RUN --mount=type=bind, but named contexts transfer fine).
+      additional_contexts:
+        cuda-repo: /var/cuda-repo-ubuntu2204-12-4-local
     image: ninfer-sm75:2080ti
     container_name: ninfer-27b-sm75
     # Serves qwen3_8_27b_v3_sm75.ninfer; model id distinct from the fork's qwen3.8-27b.
