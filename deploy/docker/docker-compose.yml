@@ -1,7 +1,8 @@
 services:
   ninfer:
     build:
-      context: ..
+      # context is the repo root so COPY . . gets the full tree
+      context: ../..
       dockerfile: deploy/docker/Dockerfile.sm75
     image: ninfer-sm75:2080ti
     container_name: ninfer-27b-sm75

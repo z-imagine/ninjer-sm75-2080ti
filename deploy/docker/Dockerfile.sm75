@@ -1,13 +1,19 @@
-# syntax=docker/dockerfile:1
-
-# sm75 (2080 Ti) image. CUDA 12.4.1 toolchain (matches the verified x99 V12.4.131);
+# sm75 (2080 Ti) image.
+#
+# Toolchain: CUDA 12.4.131 debs from the x99 offline local repo
+# (/var/cuda-repo-ubuntu2204-12-4-local, bind-mounted from the build host) —
+# the same package versions as the verified host install (nvcc 12.4.131).
+# Base is ubuntu:24.04 because nvidia/cuda:12.4.* has no ubuntu24.04 tags and
+# ubuntu22.04 ships libcurl 7.81 < the >=7.85 required by cmake/Dependencies.cmake.
+#
 # -DCMAKE_CUDA_ARCHITECTURES=75 makes CMake add NINFER_SM75=1 automatically.
 # Model artifact is NOT baked in: bind-mounted read-only at /models.
-FROM nvidia/cuda:12.4.1-devel-ubuntu24.04 AS build
+FROM ubuntu:24.04 AS build
 
 ARG DEBIAN_FRONTEND=noninteractive
 RUN apt-get update \
     && apt-get install --yes --no-install-recommends \
+        build-essential \
         cmake \
         libavcodec-dev \
         libavformat-dev \
@@ -16,6 +22,15 @@ RUN apt-get update \
         libswscale-dev \
         ninja-build \
         pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN --mount=type=bind,source=/var/cuda-repo-ubuntu2204-12-4-local,target=/cuda-repo,ro \
+    echo "deb [trusted=yes] file:///cuda-repo /" > /etc/apt/sources.list.d/cuda-12-4-local.list \
+    && apt-get update \
+    && apt-get install --yes --no-install-recommends \
+        cuda-nvcc-12-4 \
+        cuda-cudart-dev-12-4 \
+    && ln -sfn /usr/local/cuda-12.4 /usr/local/cuda \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /src
@@ -29,7 +44,8 @@ RUN cmake -S . -B /build -G Ninja \
         -DNINFER_BUILD_BENCHMARKS=OFF \
     && cmake --build /build --parallel --target ninfer ninfer-serve
 
-FROM nvidia/cuda:12.4.1-runtime-ubuntu24.04
+# Runtime: the verified binary links only libcudart.so.12, ffmpeg 6.1 and libcurl4.
+FROM ubuntu:24.04
 
 ARG DEBIAN_FRONTEND=noninteractive
 RUN apt-get update \
@@ -41,6 +57,14 @@ RUN apt-get update \
         libavutil58 \
         libcurl4t64 \
         libswscale7 \
+        ocl-icd-opencl \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN --mount=type=bind,source=/var/cuda-repo-ubuntu2204-12-4-local,target=/cuda-repo,ro \
+    echo "deb [trusted=yes] file:///cuda-repo /" > /etc/apt/sources.list.d/cuda-12-4-local.list \
+    && apt-get update \
+    && apt-get install --yes --no-install-recommends cuda-cudart-12-4 \
+    && ln -sfn /usr/local/cuda-12.4 /usr/local/cuda \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /build/apps/ninfer /usr/local/bin/ninfer
