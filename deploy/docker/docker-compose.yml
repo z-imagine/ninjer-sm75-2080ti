@@ -26,11 +26,15 @@ services:
       - --kv-dtype
       - int8
       - --kv-capacity
-      - auto
+      - "100000"
       - --max-context
-      - "65536"
+      - "100000"
       - --max-concurrency
       - "1"
+      - --spec
+      - mtp
+      - --draft-tokens
+      - "3"
     ports:
       - "15026:8080"
     volumes:
