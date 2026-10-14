@@ -32,6 +32,8 @@ RUN --mount=type=bind,from=cuda-repo,target=/cuda-repo,ro \
     && apt-get install --yes --no-install-recommends \
         cuda-nvcc-12-4 \
         cuda-cudart-dev-12-4 \
+        cuda-nvtx-12-4 \
+        cuda-driver-dev-12-4 \
     && ln -sfn /usr/local/cuda-12.4 /usr/local/cuda \
     && rm -rf /var/lib/apt/lists/*
 
