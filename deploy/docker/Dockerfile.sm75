@@ -35,6 +35,10 @@ RUN --mount=type=bind,from=cuda-repo,target=/cuda-repo,ro \
     && ln -sfn /usr/local/cuda-12.4 /usr/local/cuda \
     && rm -rf /var/lib/apt/lists/*
 
+# RUN is a non-login shell: /etc/profile.d/cuda.sh never runs, so CMake would
+# not find nvcc.
+ENV PATH=/usr/local/cuda-12.4/bin:${PATH}
+
 WORKDIR /src
 COPY . .
 
