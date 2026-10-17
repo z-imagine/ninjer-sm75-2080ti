@@ -6,8 +6,9 @@ using GemvR4W1 =
     Q4A16GemvSchedule<4, 1, 16, 1, Q4GemvActivationAccess::Direct, Q4GemvLaneMapping::PackedWord8,
                       Q4GemvDecodeMode::Fp16Mantissa, Q4GemvCodeTransfer::AsyncVector16,
                       Q4GemvScaleAccess::SharedPair32, Cache::ca, 0, 1>;
-// sm75 x99 experiment: T=1 decode GEMV sits at ~57% of the DRAM ceiling; raise per-SM
-// occupancy 1 -> 2 CTAs to increase in-flight loads.
+// sm75 x99: MinBlocks 1->2 and CtaSharedFullK+BlockRows 2 both measured no help
+// (CtaSharedFullK+BR2 regressed all T=1 shapes +27-35%: full-CTA barrier after the
+// 10KB cp.async stage costs more than the saved L1 activation re-reads). Direct R1W8.
 using GemvR1W8K5120 =
     Q4A16GemvSchedule<1, 8, 16, 1, Q4GemvActivationAccess::Direct, Q4GemvLaneMapping::PackedByte2,
                       Q4GemvDecodeMode::ScalarInteger, Q4GemvCodeTransfer::SyncVector16,

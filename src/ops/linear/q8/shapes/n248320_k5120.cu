@@ -7,10 +7,12 @@ using Geometry = Q8N248320K5120;
 using Access   = Q8ScaleAccess;
 using Stage    = Q8ActivationStage;
 // Fork sm75 head schedule: T<=4 (decode, MTP verify) reads scales directly from global.
-// sm75 x99 experiment: T=1 is latency-bound (NCU: ~4 active warps/scheduler, 12 cycles/instr);
-// raise per-SM occupancy 2 -> 3 blocks to hide it.
+// sm75 x99: T=1 latency-bound (NCU: ~4 active warps/scheduler, 12 cycles/instr).
+// MB 2->3 gave T=1 -28%; MB 4 wins T=1 (-6.6%) but regresses T=2-4 (+4-5%), so keep two.
 using C4 =
     Q8A16SlicedKMmaSchedule<8, 8, 1, 3, Access::Direct, Cache::ca, Cache::cg, Stage::ActiveOnly>;
+using C4T1 =
+    Q8A16SlicedKMmaSchedule<8, 8, 1, 4, Access::Direct, Cache::ca, Cache::cg, Stage::ActiveOnly>;
 using C8 =
     Q8A16SlicedKMmaSchedule<8, 8, 1, 2, Access::Shared, Cache::ca, Cache::cg, Stage::ActiveOnly>;
 using C16 =
@@ -25,6 +27,7 @@ using C40 =
 } // namespace
 
 Q8Launch select_q8_n248320_k5120(std::int32_t tokens) {
+    if (tokens == 1) return launch_q8_a16_sliced<Geometry, 4, C4T1>;
     if (tokens <= 4) return launch_q8_a16_sliced<Geometry, 4, C4>;
     if (tokens <= 8) return launch_q8_a16_sliced<Geometry, 8, C8>;
     if (tokens <= 16) return launch_q8_a16_sliced<Geometry, 16, C16>;
