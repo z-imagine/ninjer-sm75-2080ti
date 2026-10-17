@@ -6,6 +6,9 @@ namespace {
 using Geometry = Q8N248320K5120;
 using Access   = Q8ScaleAccess;
 using Stage    = Q8ActivationStage;
+// Fork sm75 head schedule: T<=4 (decode, MTP verify) reads scales directly from global.
+using C4 =
+    Q8A16SlicedKMmaSchedule<8, 8, 1, 2, Access::Direct, Cache::ca, Cache::cg, Stage::ActiveOnly>;
 using C8 =
     Q8A16SlicedKMmaSchedule<8, 8, 1, 2, Access::Shared, Cache::ca, Cache::cg, Stage::ActiveOnly>;
 using C16 =
@@ -20,6 +23,7 @@ using C40 =
 } // namespace
 
 Q8Launch select_q8_n248320_k5120(std::int32_t tokens) {
+    if (tokens <= 4) return launch_q8_a16_sliced<Geometry, 4, C4>;
     if (tokens <= 8) return launch_q8_a16_sliced<Geometry, 8, C8>;
     if (tokens <= 16) return launch_q8_a16_sliced<Geometry, 16, C16>;
     if (tokens <= 24) return launch_q8_a16_sliced<Geometry, 24, C24>;

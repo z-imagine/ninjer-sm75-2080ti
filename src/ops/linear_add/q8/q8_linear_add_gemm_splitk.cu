@@ -29,9 +29,16 @@ void launch_active_cols(const Tensor& x, const Weight& weight, Tensor& residual_
                              : ActiveCols <= 32 ? 32
                              : ActiveCols <= 40 ? 40
                                                 : 48;
+#if defined(NINFER_SM75)
+    // Fork sm75 params for the MTP projections: eight K-warps for T<=32 and two minimum
+    // blocks per SM (the sm86 base uses sixteen K-warps for T<=12 at K=4096).
+    constexpr int KWarps = ActiveCols <= 32 ? 8 : 4;
+    constexpr int MinBlocks = 2;
+#else
     constexpr int KWarps =
         Hidden == 4096 ? (ActiveCols <= 12 ? 16 : 8) : (ActiveCols <= 32 ? 8 : 4);
     constexpr int MinBlocks = Hidden == 4096 ? (KWarps == 16 ? 1 : 2) : (ActiveCols <= 32 ? 2 : 3);
+#endif
     constexpr auto ScaleAccess = ActiveCols > 4 ? Q8ScaleAccess::Shared : Q8ScaleAccess::Direct;
     constexpr auto ActivationCache =
         Hidden == 4096 && (ActiveCols == 4 || (ActiveCols >= 27 && ActiveCols <= 40)) ? Cache::cg

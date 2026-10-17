@@ -8,10 +8,13 @@ using Geometry = Q8N2048K16384;
 using Access   = Q8ScaleAccess;
 using Stage    = Q8ActivationStage;
 #if defined(NINFER_SM75)
-// 2080Ti opt-in shared-memory cap is 64 KiB: single stage keeps this at 32 KiB.
-using C8       = Q8A16SlicedKMmaSchedule<8, 16, 1, 1, Access::Shared>;
+// Fork sm75 small-T defaults: eight K-warps, five minimum blocks per SM, and direct scale
+// access for T<=4 (the sm86 base keeps sixteen K-warps, two stages, and shared scales).
+using C4 = Q8A16SlicedKMmaSchedule<8, 8, 1, 5, Access::Direct>;
+using C8 = Q8A16SlicedKMmaSchedule<8, 8, 1, 5, Access::Shared>;
 #else
-using C8       = Q8A16SlicedKMmaSchedule<8, 16, 2, 1, Access::Shared>;
+using C4 = Q8A16SlicedKMmaSchedule<8, 16, 2, 1, Access::Shared>;
+using C8 = Q8A16SlicedKMmaSchedule<8, 16, 2, 1, Access::Shared>;
 #endif
 
 using Wide32   = Q8A16SlicedKMmaSchedule<32, 4, 2, 1, Access::Shared>;
@@ -67,6 +70,7 @@ void launch_grouped(const Tensor& x, const Weight& weight, Tensor& out, cudaStre
 
 Q8Launch select_q8_n2048_k16384(std::int32_t tokens) {
     if (tokens == 1) return launch_q8_a16_gemv_r4_w1_k16384;
+    if (tokens <= 4) return launch_q8_a16_sliced<Geometry, 4, C4>;
     if (tokens <= 8) return launch_q8_a16_sliced<Geometry, 8, C8>;
     if (tokens <= 16) return launch_q8_a16_sliced<Geometry, 16, C16>;
     if (tokens <= 24) return launch_q8_a16_sliced<Geometry, 24, C24>;

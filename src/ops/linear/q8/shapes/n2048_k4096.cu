@@ -6,10 +6,19 @@ namespace {
 using Geometry = Q8N2048K4096;
 using Access   = Q8ScaleAccess;
 using Stage    = Q8ActivationStage;
+#if defined(NINFER_SM75)
+// Fork sm75 params for this MTP projection: eight K-warps and two minimum blocks per SM for
+// T<=32 (the sm86 base keeps sixteen K-warps for T<=12).
+using C4 = Q8A16SlicedKMmaSchedule<8, 8, 1, 2, Access::Direct, Cache::cg, Cache::cg,
+                                   Stage::RuntimeActive>;
+using C8 = Q8A16SlicedKMmaSchedule<8, 8, 1, 2, Access::Shared, Cache::ca, Cache::cg,
+                                   Stage::RuntimeActive>;
+#else
 using C4       = Q8A16SlicedKMmaSchedule<8, 16, 1, 1, Access::Direct, Cache::cg, Cache::cg,
                                          Stage::RuntimeActive>;
 using C8       = Q8A16SlicedKMmaSchedule<8, 16, 1, 1, Access::Shared, Cache::ca, Cache::cg,
                                          Stage::RuntimeActive>;
+#endif
 using C40 =
     Q8A16SlicedKMmaSchedule<40, 8, 1, 2, Access::Shared, Cache::cg, Cache::cg, Stage::ActiveOnly>;
 using C48 = Q8A16SlicedKMmaSchedule<48, 8, 1, 2, Access::Shared, Cache::ca, Cache::cg,
