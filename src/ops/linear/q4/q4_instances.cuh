@@ -6,10 +6,12 @@ using GemvR4W1 =
     Q4A16GemvSchedule<4, 1, 16, 1, Q4GemvActivationAccess::Direct, Q4GemvLaneMapping::PackedWord8,
                       Q4GemvDecodeMode::Fp16Mantissa, Q4GemvCodeTransfer::AsyncVector16,
                       Q4GemvScaleAccess::SharedPair32, Cache::ca, 0, 1>;
+// sm75 x99 experiment: T=1 decode GEMV sits at ~57% of the DRAM ceiling; raise per-SM
+// occupancy 1 -> 2 CTAs to increase in-flight loads.
 using GemvR1W8K5120 =
     Q4A16GemvSchedule<1, 8, 16, 1, Q4GemvActivationAccess::Direct, Q4GemvLaneMapping::PackedByte2,
                       Q4GemvDecodeMode::ScalarInteger, Q4GemvCodeTransfer::SyncVector16,
-                      Q4GemvScaleAccess::Scalar16Shuffle, Cache::ca, 80, 1>;
+                      Q4GemvScaleAccess::Scalar16Shuffle, Cache::ca, 80, 2>;
 
 using MmaR32T64K64Wr16Wt32S2A2B2 =
     Q4A16MmaSchedule<32, 64, 64, 16, 32, 2, 2, Q4MmaFragmentPipeline::Serial, Cache::cg, Cache::cg,
@@ -17,7 +19,7 @@ using MmaR32T64K64Wr16Wt32S2A2B2 =
 using GemvR1W8K6144 =
     Q4A16GemvSchedule<1, 8, 16, 1, Q4GemvActivationAccess::Direct, Q4GemvLaneMapping::PackedByte2,
                       Q4GemvDecodeMode::ScalarInteger, Q4GemvCodeTransfer::SyncVector16,
-                      Q4GemvScaleAccess::Scalar16Shuffle, Cache::ca, 6144 / 64, 1>;
+                      Q4GemvScaleAccess::Scalar16Shuffle, Cache::ca, 6144 / 64, 2>;
 using MmaR32T32K64Wr16Wt16S3A3B2 =
     Q4A16MmaSchedule<32, 32, 64, 16, 16, 3, 2, Q4MmaFragmentPipeline::Serial, Cache::cg, Cache::cg,
                      Q4ScaleLoad::Pair32>;
