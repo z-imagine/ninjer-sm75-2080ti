@@ -4,7 +4,9 @@ namespace ninfer::ops::detail {
 Q4Launch select_q4_n34816_k5120(std::int32_t tokens) {
     // Selected with complete-Op cold CUDA Graph measurements on RTX 5090.
     if (tokens <= 1) return launch_q4_a16_gemv_r1_w8_direct;
-    if (tokens <= 4) return launch_q4_a16_sliced_r16_t8_capacity4;
+    // sm75: sliced K=5120 at T=2..4 costs 2.7x the T=1 GEMV per token (NCU: L1-bound, 37%
+    // occupancy); batched GEMV measured T=2 1709 -> ~632 us.
+    if (tokens <= 4) return launch_q4_a16_gemv_r1_w8_direct_batched;
     if (tokens <= 8) return launch_q4_a16_sliced_r32_t8_w4_s2;
     if (tokens <= 16) return launch_q4_a16_sliced_r32_t16_w4_s2;
     if (tokens <= 63) return launch_q4_a16_sliced_r32_t32_w4_s1;

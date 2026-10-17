@@ -70,7 +70,9 @@ void launch_grouped(const Tensor& x, const Weight& weight, Tensor& out, cudaStre
 
 Q8Launch select_q8_n2048_k16384(std::int32_t tokens) {
     if (tokens == 1) return launch_q8_a16_gemv_r4_w1_k16384;
-    if (tokens <= 4) return launch_q8_a16_sliced<Geometry, 4, C4>;
+    // sm75: sliced K=16384 at T=2..4 is latency-bound at 1 block/SM (255 registers); the
+    // batched GEMV is ~5.7x faster at T=2 (776 -> ~135 us). C4 kept for reference.
+    if (tokens <= 4) return launch_q8_a16_gemv_r4_w1_k16384_batched;
     if (tokens <= 8) return launch_q8_a16_sliced<Geometry, 8, C8>;
     if (tokens <= 16) return launch_q8_a16_sliced<Geometry, 16, C16>;
     if (tokens <= 24) return launch_q8_a16_sliced<Geometry, 24, C24>;
