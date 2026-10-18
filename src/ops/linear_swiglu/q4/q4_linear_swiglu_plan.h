@@ -13,6 +13,7 @@ namespace ninfer::ops::detail {
 enum class Q4LinearSwiGluScheduleId {
     GemvPair,
     SmallTTiled,
+    RtSwiglu,
     Materialized,
     MmaSplitHalfPairR32C128,
     MmaSplitHalfPairR32C128Tail,

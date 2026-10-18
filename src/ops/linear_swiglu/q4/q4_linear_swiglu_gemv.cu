@@ -195,6 +195,205 @@ __global__ void q4_linear_swiglu_gemv_pair_kernel(const __nv_bfloat16* __restric
     if (lane == 0) { out[out_row] = __float2bfloat16(silu(gate_acc) * up_acc); }
 }
 
+// Fused SwiGLU RT kernel for T=2..4. One CTA owns four output rows and
+// computes both the gate and the up projections for every token: the gate
+// pass runs to completion, then the up pass reuses the same accumulator
+// registers, so register pressure stays at the single-output level. Weight
+// bytes are staged once with evict-first loads so the activation reads stay
+// L1-resident across the 2 * kK dot products per token.
+constexpr int kRtWarps      = 8;
+constexpr int kRtRowsPerCta = 4;
+constexpr int kRtActiveGroups = kGroups / kRtWarps;
+constexpr int kRtVecs       = kRtActiveGroups * kBytesPerGroup / kVecBytes;
+static_assert(kRtVecs == 20);
+
+template <int Tokens>
+__global__ __launch_bounds__(kRtWarps * 32) void q4_linear_swiglu_rt_kernel(
+    const __nv_bfloat16* __restrict__ x,     // token-major [Tokens, kK]
+    const std::uint8_t* __restrict__ codes,  // [2 * kIntermediate, kGroups * 32]
+    const std::uint8_t* __restrict__ scales, // [2 * kIntermediate, kGroups * 2]
+    __nv_bfloat16* __restrict__ out) // token-major [Tokens, kIntermediate]
+{
+    constexpr int T = Tokens;
+    const int lane = static_cast<int>(threadIdx.x) & 31;
+    const int warp = static_cast<int>(threadIdx.x) >> 5;
+    const int row0 = static_cast<int>(blockIdx.x) * kRtRowsPerCta;
+
+    constexpr std::int64_t kRowStrideC = static_cast<std::int64_t>(kGroups) * kBytesPerGroup;
+    constexpr std::int64_t kRowStrideS = static_cast<std::int64_t>(kGroups) * 2;
+    const int group_begin = warp * kRtActiveGroups;
+
+    // Slot 2r holds the gate row of output row r; 2r + 1 holds its up row.
+    __shared__ uint4 shared_codes[kRtWarps][2 * kRtRowsPerCta][kRtVecs];
+    #pragma unroll
+    for (int r = 0; r < kRtRowsPerCta; ++r) {
+        const auto* g_gate = reinterpret_cast<const uint4*>(
+            codes + static_cast<std::int64_t>(row0 + r) * kRowStrideC +
+            static_cast<std::int64_t>(group_begin) * kBytesPerGroup);
+        const auto* g_up = reinterpret_cast<const uint4*>(
+            codes + static_cast<std::int64_t>(kIntermediate + row0 + r) * kRowStrideC +
+            static_cast<std::int64_t>(group_begin) * kBytesPerGroup);
+        if (lane < kRtVecs) {
+            shared_codes[warp][2 * r][lane] = __ldcs(g_gate + lane);
+            shared_codes[warp][2 * r + 1][lane] = __ldcs(g_up + lane);
+        }
+    }
+    __syncwarp();
+
+    std::uint16_t lane_scale_bits[2 * kRtRowsPerCta];
+    #pragma unroll
+    for (int r = 0; r < kRtRowsPerCta; ++r) {
+        lane_scale_bits[2 * r]     = 0;
+        lane_scale_bits[2 * r + 1] = 0;
+        if (lane < kRtActiveGroups) {
+            lane_scale_bits[2 * r] = __ldcs(reinterpret_cast<const std::uint16_t*>(
+                scales + static_cast<std::int64_t>(row0 + r) * kRowStrideS +
+                static_cast<std::int64_t>(group_begin + lane) * 2));
+            lane_scale_bits[2 * r + 1] = __ldcs(reinterpret_cast<const std::uint16_t*>(
+                scales + static_cast<std::int64_t>(kIntermediate + row0 + r) * kRowStrideS +
+                static_cast<std::int64_t>(group_begin + lane) * 2));
+        }
+    }
+
+    float acc[kRtRowsPerCta][T];
+    #pragma unroll
+    for (int r = 0; r < kRtRowsPerCta; ++r)
+        #pragma unroll
+        for (int t = 0; t < T; ++t) { acc[r][t] = 0.0f; }
+
+    // Pass 1: gate rows (slots 2r).
+    #pragma unroll
+    for (int local_group = 0; local_group < kRtActiveGroups; local_group += 2) {
+        float w0[kRtRowsPerCta], w1[kRtRowsPerCta], w2[kRtRowsPerCta], w3[kRtRowsPerCta];
+        #pragma unroll
+        for (int r = 0; r < kRtRowsPerCta; ++r) {
+            const std::uint16_t sb0 = static_cast<std::uint16_t>(
+                __shfl_sync(0xffffffffu, lane_scale_bits[2 * r], local_group));
+            const std::uint16_t sb1 = static_cast<std::uint16_t>(
+                __shfl_sync(0xffffffffu, lane_scale_bits[2 * r], local_group + 1));
+            const float s0 = __half2float(__ushort_as_half(sb0));
+            const float s1 = __half2float(__ushort_as_half(sb1));
+            const auto* tile =
+                reinterpret_cast<const std::uint8_t*>(&shared_codes[warp][2 * r][0]);
+            const std::uint8_t p0 = tile[local_group * kBytesPerGroup + lane];
+            const std::uint8_t p1 = tile[(local_group + 1) * kBytesPerGroup + lane];
+            w0[r] = static_cast<float>(((static_cast<int>(p0 & 0x0fu) ^ 0x08) - 0x08)) * s0;
+            w1[r] = static_cast<float>(((static_cast<int>(p0 >> 4) ^ 0x08) - 0x08)) * s0;
+            w2[r] = static_cast<float>(((static_cast<int>(p1 & 0x0fu) ^ 0x08) - 0x08)) * s1;
+            w3[r] = static_cast<float>(((static_cast<int>(p1 >> 4) ^ 0x08) - 0x08)) * s1;
+        }
+        const int kb0 = (group_begin + local_group) * kGroupK + lane * 2;
+        #pragma unroll
+        for (int t = 0; t < T; ++t) {
+            const auto* xp = reinterpret_cast<const __nv_bfloat162*>(
+                x + static_cast<std::int64_t>(t) * kK);
+            const float2 xa = __bfloat1622float2(xp[kb0 >> 1]);
+            const float2 xb = __bfloat1622float2(xp[(kb0 + kGroupK) >> 1]);
+            #pragma unroll
+            for (int r = 0; r < kRtRowsPerCta; ++r) {
+                acc[r][t] = fmaf(w0[r], xa.x, acc[r][t]);
+                acc[r][t] = fmaf(w1[r], xa.y, acc[r][t]);
+                acc[r][t] = fmaf(w2[r], xb.x, acc[r][t]);
+                acc[r][t] = fmaf(w3[r], xb.y, acc[r][t]);
+            }
+        }
+    }
+    __syncwarp();
+
+    __shared__ float partials_g[kRtWarps][T][kRtRowsPerCta];
+    #pragma unroll
+    for (int r = 0; r < kRtRowsPerCta; ++r)
+        #pragma unroll
+        for (int t = 0; t < T; ++t) {
+            #pragma unroll
+            for (int off = 16; off; off >>= 1) {
+                acc[r][t] += __shfl_xor_sync(0xffffffffu, acc[r][t], off);
+            }
+        }
+    if (lane == 0) {
+        #pragma unroll
+        for (int r = 0; r < kRtRowsPerCta; ++r)
+            #pragma unroll
+            for (int t = 0; t < T; ++t) { partials_g[warp][t][r] = acc[r][t]; }
+    }
+    __syncthreads();
+
+    // Pass 2: up rows (slots 2r + 1), reusing the same acc registers.
+    #pragma unroll
+    for (int r = 0; r < kRtRowsPerCta; ++r)
+        #pragma unroll
+        for (int t = 0; t < T; ++t) { acc[r][t] = 0.0f; }
+    #pragma unroll
+    for (int local_group = 0; local_group < kRtActiveGroups; local_group += 2) {
+        float w0[kRtRowsPerCta], w1[kRtRowsPerCta], w2[kRtRowsPerCta], w3[kRtRowsPerCta];
+        #pragma unroll
+        for (int r = 0; r < kRtRowsPerCta; ++r) {
+            const std::uint16_t sb0 = static_cast<std::uint16_t>(
+                __shfl_sync(0xffffffffu, lane_scale_bits[2 * r + 1], local_group));
+            const std::uint16_t sb1 = static_cast<std::uint16_t>(
+                __shfl_sync(0xffffffffu, lane_scale_bits[2 * r + 1], local_group + 1));
+            const float s0 = __half2float(__ushort_as_half(sb0));
+            const float s1 = __half2float(__ushort_as_half(sb1));
+            const auto* tile =
+                reinterpret_cast<const std::uint8_t*>(&shared_codes[warp][2 * r + 1][0]);
+            const std::uint8_t p0 = tile[local_group * kBytesPerGroup + lane];
+            const std::uint8_t p1 = tile[(local_group + 1) * kBytesPerGroup + lane];
+            w0[r] = static_cast<float>(((static_cast<int>(p0 & 0x0fu) ^ 0x08) - 0x08)) * s0;
+            w1[r] = static_cast<float>(((static_cast<int>(p0 >> 4) ^ 0x08) - 0x08)) * s0;
+            w2[r] = static_cast<float>(((static_cast<int>(p1 & 0x0fu) ^ 0x08) - 0x08)) * s1;
+            w3[r] = static_cast<float>(((static_cast<int>(p1 >> 4) ^ 0x08) - 0x08)) * s1;
+        }
+        const int kb0 = (group_begin + local_group) * kGroupK + lane * 2;
+        #pragma unroll
+        for (int t = 0; t < T; ++t) {
+            const auto* xp = reinterpret_cast<const __nv_bfloat162*>(
+                x + static_cast<std::int64_t>(t) * kK);
+            const float2 xa = __bfloat1622float2(xp[kb0 >> 1]);
+            const float2 xb = __bfloat1622float2(xp[(kb0 + kGroupK) >> 1]);
+            #pragma unroll
+            for (int r = 0; r < kRtRowsPerCta; ++r) {
+                acc[r][t] = fmaf(w0[r], xa.x, acc[r][t]);
+                acc[r][t] = fmaf(w1[r], xa.y, acc[r][t]);
+                acc[r][t] = fmaf(w2[r], xb.x, acc[r][t]);
+                acc[r][t] = fmaf(w3[r], xb.y, acc[r][t]);
+            }
+        }
+    }
+    __syncwarp();
+
+    __shared__ float partials_u[kRtWarps][T][kRtRowsPerCta];
+    #pragma unroll
+    for (int r = 0; r < kRtRowsPerCta; ++r)
+        #pragma unroll
+        for (int t = 0; t < T; ++t) {
+            #pragma unroll
+            for (int off = 16; off; off >>= 1) {
+                acc[r][t] += __shfl_xor_sync(0xffffffffu, acc[r][t], off);
+            }
+        }
+    if (lane == 0) {
+        #pragma unroll
+        for (int r = 0; r < kRtRowsPerCta; ++r)
+            #pragma unroll
+            for (int t = 0; t < T; ++t) { partials_u[warp][t][r] = acc[r][t]; }
+    }
+    __syncthreads();
+
+    if (warp == 0 && lane < T) {
+        #pragma unroll
+        for (int r = 0; r < kRtRowsPerCta; ++r) {
+            float g = 0.0f, u = 0.0f;
+            #pragma unroll
+            for (int w = 0; w < kRtWarps; ++w) {
+                g += partials_g[w][lane][r];
+                u += partials_u[w][lane][r];
+            }
+            out[static_cast<std::int64_t>(lane) * kIntermediate + row0 + r] =
+                __float2bfloat16_rn(silu(g) * u);
+        }
+    }
+}
+
 } // namespace
 
 void q4_linear_swiglu_gemv_pair_launch(const Tensor& x, const Weight& w, Tensor& out,
@@ -215,6 +414,34 @@ void q4_linear_swiglu_small_t_tiled_launch(const Tensor& x, const Weight& w, Ten
         throw std::invalid_argument("Q4 LinearSwiGLU exact small-T requires T=2..32");
     }
     kSmallTLaunchers[static_cast<std::size_t>((x.ne[1] - 1) / 8)](x, w, out, stream);
+}
+
+void q4_linear_swiglu_rt_launch(const Tensor& x, const Weight& w, Tensor& out,
+                                cudaStream_t stream) {
+    if (w.n != kN || w.k != kK || w.padded_shape[1] != kK) {
+        throw std::invalid_argument("q4 linear_swiglu RT requires weight [34816,5120]");
+    }
+    const int grid = kIntermediate / kRtRowsPerCta;
+    switch (x.ne[1]) {
+    case 2:
+        q4_linear_swiglu_rt_kernel<2><<<grid, kRtWarps * 32, 0, stream>>>(
+            static_cast<const __nv_bfloat16*>(x.data), static_cast<const std::uint8_t*>(w.qdata),
+            static_cast<const std::uint8_t*>(w.scales), static_cast<__nv_bfloat16*>(out.data));
+        break;
+    case 3:
+        q4_linear_swiglu_rt_kernel<3><<<grid, kRtWarps * 32, 0, stream>>>(
+            static_cast<const __nv_bfloat16*>(x.data), static_cast<const std::uint8_t*>(w.qdata),
+            static_cast<const std::uint8_t*>(w.scales), static_cast<__nv_bfloat16*>(out.data));
+        break;
+    case 4:
+        q4_linear_swiglu_rt_kernel<4><<<grid, kRtWarps * 32, 0, stream>>>(
+            static_cast<const __nv_bfloat16*>(x.data), static_cast<const std::uint8_t*>(w.qdata),
+            static_cast<const std::uint8_t*>(w.scales), static_cast<__nv_bfloat16*>(out.data));
+        break;
+    default:
+        throw std::invalid_argument("Q4 LinearSwiGLU RT requires T=2..4");
+    }
+    CUDA_CHECK(cudaGetLastError());
 }
 
 } // namespace ninfer::ops::detail

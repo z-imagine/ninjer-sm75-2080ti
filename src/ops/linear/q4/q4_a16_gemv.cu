@@ -47,4 +47,40 @@ void launch_q4_a16_gemv_r1_w8_k6144_batched(const Tensor& x, const Weight& weigh
     launch_q4_gemv_batched<&launch_q4_a16_gemv_r1_w8_k6144>(x, weight, out, stream);
 }
 
+namespace {
+// sm75 p7: one launch for T=2..4 verify tokens, 4 rows x 8 warps per block.
+// Replaces the T=1 x T batched path (3.1x on 34816x5120, probe-validated).
+template <int Tokens>
+void launch_q4_gemv_r4_w8(const Tensor& x, const Weight& w, Tensor& out, cudaStream_t stream) {
+    constexpr int kRowsPerCta = 4;
+    const Q4LinearOperands operands = q4_linear_operands(x, w);
+    validate_q4_operands(operands);
+    if (operands.tokens != Tokens)
+        throw std::invalid_argument("Q4 GEMV r4w8 token count mismatch");
+    if (operands.rows % kRowsPerCta != 0)
+        throw std::invalid_argument("Q4 GEMV r4w8 requires rows divisible by 4");
+    const dim3 grid(operands.rows / kRowsPerCta);
+    q4_a16_gemv_r4_w8_kernel<Tokens, kRowsPerCta><<<grid, 8 * 32, 0, stream>>>(
+        operands.x, operands.codes, operands.scales,
+        LinearBf16Output{static_cast<__nv_bfloat16*>(out.data), operands.rows},
+        LinearIdentityEpilogue{}, operands.rows, operands.k, operands.padded_k);
+    CUDA_CHECK(cudaGetLastError());
+}
+} // namespace
+
+void launch_q4_a16_gemv_r4_w8_t2(const Tensor& x, const Weight& weight, Tensor& out,
+                                 cudaStream_t stream) {
+    launch_q4_gemv_r4_w8<2>(x, weight, out, stream);
+}
+
+void launch_q4_a16_gemv_r4_w8_t3(const Tensor& x, const Weight& weight, Tensor& out,
+                                 cudaStream_t stream) {
+    launch_q4_gemv_r4_w8<3>(x, weight, out, stream);
+}
+
+void launch_q4_a16_gemv_r4_w8_t4(const Tensor& x, const Weight& weight, Tensor& out,
+                                 cudaStream_t stream) {
+    launch_q4_gemv_r4_w8<4>(x, weight, out, stream);
+}
+
 } // namespace ninfer::ops::detail

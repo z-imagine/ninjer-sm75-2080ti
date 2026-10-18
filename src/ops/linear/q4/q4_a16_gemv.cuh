@@ -388,4 +388,148 @@ __global__ __launch_bounds__(Schedule::kThreads, Schedule::kMinBlocksPerSm) void
     if constexpr (JoinPdl) { pdl::wait_for_dependencies(); }
 }
 
+// ---------------------------------------------------------------------------
+// sm75 p7: multi-token (T=2..4) multi-row GEMV. Ported from
+// sm75-probe/p7_probe/q4_gemv_t4_proto.cu (validated 7/7; on a real
+// 34816x5120 the T=4 R=4 __ldcs build measures 399-406 us sustained vs
+// 1257.7 us for the p6 batched T=1 x4 launch, 3.1x).
+//
+// One block owns RowsPerCta rows x full K. Warp w owns the scale-pair-aligned
+// k-slice [pairs*w/8, pairs*(w+1)/8) (integer division, uneven split is
+// correct). Codes and scales are staged once per (warp, row) with evict-first
+// __ldcs so the activation rows (T * k * 2 B, reused by every block) keep L1
+// priority; each x element is loaded once per token and reused across the
+// RowsPerCta-row FMA loop. On TU102 the L1/smem carveout is hardware-fixed
+// (only 0 accepted), so __ldcs is the only residency lever; __ldcg measured
+// ~7% worse at comparable clocks. Requires rows % RowsPerCta == 0 (checked
+// by the launcher).
+// ---------------------------------------------------------------------------
+template <int Tokens, int RowsPerCta, class Output, class Epilogue>
+__global__ __launch_bounds__(8 * 32, 3) void q4_a16_gemv_r4_w8_kernel(
+    const __nv_bfloat16* __restrict__ x, const std::uint8_t* __restrict__ codes,
+    const std::uint8_t* __restrict__ scales, Output output, Epilogue epilogue, std::int32_t rows,
+    std::int32_t k, std::int32_t padded_k) {
+    constexpr int kWarpCount = 8;
+    const int lane = static_cast<int>(threadIdx.x) & 31;
+    const int warp = static_cast<int>(threadIdx.x) >> 5;
+    const int row0 = static_cast<int>(blockIdx.x) * RowsPerCta;
+
+    const int groups_per_row = k / Q4RowSplitStorage::kGroupK;
+    const int pairs_per_row  = groups_per_row / 2;
+    const int pair_begin     = pairs_per_row * warp / kWarpCount;
+    const int pair_end       = pairs_per_row * (warp + 1) / kWarpCount;
+    const int group_begin    = pair_begin * 2;
+    const int active_groups  = (pair_end - pair_begin) * 2;
+    const int active_vecs    =
+        active_groups * Q4RowSplitStorage::kCodeBytesPerGroup / static_cast<int>(sizeof(uint4));
+
+    const std::int64_t row_stride_c =
+        (padded_k / Q4RowSplitStorage::kGroupK) * Q4RowSplitStorage::kCodeBytesPerGroup;
+    const std::int64_t row_stride_s =
+        (padded_k / Q4RowSplitStorage::kGroupK) * Q4RowSplitStorage::kScaleBytesPerGroup;
+    const std::uint8_t* code_base  = codes + static_cast<std::int64_t>(row0) * row_stride_c;
+    const std::uint8_t* scale_base = scales + static_cast<std::int64_t>(row0) * row_stride_s;
+
+    __shared__ uint4 shared_codes[kWarpCount][RowsPerCta][32];
+#pragma unroll
+    for (int r = 0; r < RowsPerCta; ++r) {
+        const auto* g = reinterpret_cast<const uint4*>(code_base + r * row_stride_c +
+                                                       group_begin * Q4RowSplitStorage::kCodeBytesPerGroup);
+        if (lane < active_vecs) { shared_codes[warp][r][lane] = __ldcs(g + lane); }
+    }
+    __syncwarp();
+
+    std::uint16_t lane_scale_bits[RowsPerCta];
+#pragma unroll
+    for (int r = 0; r < RowsPerCta; ++r) {
+        lane_scale_bits[r] = 0;
+        if (lane < active_groups) {
+            lane_scale_bits[r] = __ldcs(reinterpret_cast<const std::uint16_t*>(
+                scale_base + r * row_stride_s +
+                (group_begin + lane) * Q4RowSplitStorage::kScaleBytesPerGroup));
+        }
+    }
+
+    float acc[RowsPerCta][Tokens];
+#pragma unroll
+    for (int r = 0; r < RowsPerCta; ++r)
+#pragma unroll
+        for (int t = 0; t < Tokens; ++t) { acc[r][t] = 0.0f; }
+
+#pragma unroll
+    for (int local_group = 0; local_group < active_groups; local_group += 2) {
+        float w00[RowsPerCta], w01[RowsPerCta], w10[RowsPerCta], w11[RowsPerCta];
+#pragma unroll
+        for (int r = 0; r < RowsPerCta; ++r) {
+            const std::uint16_t sb0 = static_cast<std::uint16_t>(
+                __shfl_sync(kFullWarpMask, lane_scale_bits[r], local_group));
+            const std::uint16_t sb1 = static_cast<std::uint16_t>(
+                __shfl_sync(kFullWarpMask, lane_scale_bits[r], local_group + 1));
+            const float s0 = __half2float(__ushort_as_half(sb0));
+            const float s1 = __half2float(__ushort_as_half(sb1));
+            const auto* tile =
+                reinterpret_cast<const std::uint8_t*>(&shared_codes[warp][r][0]);
+            const std::uint8_t p0 =
+                tile[local_group * Q4RowSplitStorage::kCodeBytesPerGroup + lane];
+            const std::uint8_t p1 =
+                tile[(local_group + 1) * Q4RowSplitStorage::kCodeBytesPerGroup + lane];
+            w00[r] = static_cast<float>(((static_cast<int>(p0 & 0x0fu) ^ 0x08) - 0x08)) * s0;
+            w01[r] = static_cast<float>(((static_cast<int>(p0 >> 4) ^ 0x08) - 0x08)) * s0;
+            w10[r] = static_cast<float>(((static_cast<int>(p1 & 0x0fu) ^ 0x08) - 0x08)) * s1;
+            w11[r] = static_cast<float>(((static_cast<int>(p1 >> 4) ^ 0x08) - 0x08)) * s1;
+        }
+
+        // x is loaded once per token and reused across all RowsPerCta rows.
+        const int kb0 = (group_begin + local_group) * Q4RowSplitStorage::kGroupK + lane * 2;
+#pragma unroll
+        for (int t = 0; t < Tokens; ++t) {
+            const auto* xp =
+                reinterpret_cast<const __nv_bfloat162*>(x + static_cast<std::int64_t>(t) * k);
+            const float2 xa = __bfloat1622float2(xp[kb0 >> 1]);
+            const float2 xb =
+                __bfloat1622float2(xp[(kb0 + Q4RowSplitStorage::kGroupK) >> 1]);
+#pragma unroll
+            for (int r = 0; r < RowsPerCta; ++r) {
+                acc[r][t] = fmaf(w00[r], xa.x, acc[r][t]);
+                acc[r][t] = fmaf(w01[r], xa.y, acc[r][t]);
+                acc[r][t] = fmaf(w10[r], xb.x, acc[r][t]);
+                acc[r][t] = fmaf(w11[r], xb.y, acc[r][t]);
+            }
+        }
+    }
+    __syncwarp();
+
+#pragma unroll
+    for (int r = 0; r < RowsPerCta; ++r)
+#pragma unroll
+        for (int t = 0; t < Tokens; ++t)
+#pragma unroll
+            for (int off = 16; off; off >>= 1)
+                acc[r][t] += __shfl_xor_sync(kFullWarpMask, acc[r][t], off);
+
+    __shared__ float partials[kWarpCount][Tokens][RowsPerCta];
+    if (lane == 0) {
+#pragma unroll
+        for (int r = 0; r < RowsPerCta; ++r)
+#pragma unroll
+            for (int t = 0; t < Tokens; ++t) { partials[warp][t][r] = acc[r][t]; }
+    }
+    __syncthreads();
+
+    if (warp == 0 && lane == 0) {
+#pragma unroll
+        for (int r = 0; r < RowsPerCta; ++r) {
+            float values[Tokens];
+#pragma unroll
+            for (int t = 0; t < Tokens; ++t) {
+                float s = 0.0f;
+#pragma unroll
+                for (int w = 0; w < kWarpCount; ++w) { s += partials[w][t][r]; }
+                values[t] = s;
+            }
+            linear_finish_row(output, epilogue, row0 + r, 0, values, Tokens);
+        }
+    }
+}
+
 } // namespace ninfer::ops::detail
